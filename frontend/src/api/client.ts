@@ -1,10 +1,12 @@
 import axios from "axios";
 import type { ScreenRequest, ScreenResponse, ChartData } from "../types";
 
-const api = axios.create({ baseURL: "/api", timeout: 120_000 });
+const api = axios.create({ baseURL: "/api", timeout: 30_000 });
 
 export async function runScreen(req: ScreenRequest): Promise<ScreenResponse> {
-  const { data } = await api.post<ScreenResponse>("/screen", req);
+  const { data } = await api.post<ScreenResponse>("/screen", req, {
+    timeout: 600_000, // 初回データ取得は最大10分
+  });
   return data;
 }
 

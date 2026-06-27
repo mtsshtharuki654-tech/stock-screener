@@ -21,7 +21,8 @@ export default function ResultsTable({ result, isLoading, error }: Props) {
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-spin">⟳</div>
-          <p className="text-gray-400">スクリーニング中... データ取得に数十秒かかる場合があります</p>
+          <p className="text-gray-300 font-medium">スクリーニング中...</p>
+          <p className="text-gray-500 text-sm mt-2">初回はJ-Quantsからデータを取得するため<br />数分かかる場合があります。そのままお待ちください。</p>
         </div>
       </div>
     );
