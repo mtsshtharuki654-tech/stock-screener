@@ -15,7 +15,6 @@ from app.core.index_correlation import get_correlation_for_stock
 router = APIRouter()
 JST = timezone(timedelta(hours=9))
 
-# ステップごとの進捗ウェイト（合計100）
 _WEIGHT_UNIVERSE  = 2
 _WEIGHT_OHLCV     = 80
 _WEIGHT_MA        = 8
@@ -31,62 +30,56 @@ def _ma_snap(df: pd.DataFrame) -> MASnapshot:
     )
 
 
+def _make_progress(t0: float, pct: float, msg: str) -> dict:
+    elapsed = time.monotonic() - t0
+    eta = int(elapsed / pct * (100 - pct)) if pct > 0 else None
+    return {
+        "type": "progress",
+        "pct": round(pct, 1),
+        "message": msg,
+        "elapsed": int(elapsed),
+        "eta": eta,
+    }
+
+
 @router.post("/screen")
 async def run_screen(req: ScreenRequest):
     async def generate():
         t0 = time.monotonic()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
 
-        def _send(pct: float, msg: str):
-            elapsed = time.monotonic() - t0
-            if pct > 0:
-                eta = int(elapsed / pct * (100 - pct))
-            else:
-                eta = None
-            payload = {
-                "type": "progress",
-                "pct": round(pct, 1),
-                "message": msg,
-                "elapsed": int(elapsed),
-                "eta": eta,
-            }
-            loop.call_soon_threadsafe(queue.put_nowait, payload)
-
         # ---- ステップ1: 銘柄マスター ----
-        _send(0, "銘柄マスターを取得中...")
+        yield {"data": json.dumps(_make_progress(t0, 0, "銘柄マスターを取得中..."), ensure_ascii=False)}
         try:
             universe_df = await asyncio.to_thread(dp.load_universe, req.segments)
         except Exception as e:
             yield {"data": json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False)}
             return
-        _send(_WEIGHT_UNIVERSE, "銘柄マスター取得完了")
+        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE, "銘柄マスター取得完了"), ensure_ascii=False)}
 
-        # ---- ステップ2: 日足OHLCV（進捗をキューで受信） ----
-        _send(_WEIGHT_UNIVERSE, "日足データを取得中...")
-
-        ohlcv_base = _WEIGHT_UNIVERSE
+        # ---- ステップ2: 日足OHLCV（進捗はスレッドからキュー経由） ----
+        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE, "日足データを取得中..."), ensure_ascii=False)}
 
         def on_ohlcv_progress(done: int, total: int):
-            pct = ohlcv_base + _WEIGHT_OHLCV * done / total
-            eta_note = f"（{done}/{total} バッチ）"
-            _send(pct, f"日足データを取得中... {eta_note}")
+            pct = _WEIGHT_UNIVERSE + _WEIGHT_OHLCV * done / total
+            payload = _make_progress(t0, pct, f"日足データを取得中...（{done}/{total} バッチ）")
+            loop.call_soon_threadsafe(queue.put_nowait, payload)
 
         fetch_task = asyncio.create_task(
             asyncio.to_thread(dp.load_daily_ohlcv, req.segments, on_ohlcv_progress)
         )
 
-        # フェッチ中はキューからイベントを流す
         while not fetch_task.done():
             try:
-                payload = await asyncio.wait_for(queue.get(), timeout=2.0)
+                payload = await asyncio.wait_for(asyncio.shield(queue.get()), timeout=2.0)
                 yield {"data": json.dumps(payload, ensure_ascii=False)}
             except asyncio.TimeoutError:
                 pass
 
-        # キューに残ったイベントも全部流す
+        # 残りのキューを全部流す
         while not queue.empty():
-            yield {"data": json.dumps(await queue.get(), ensure_ascii=False)}
+            yield {"data": json.dumps(queue.get_nowait(), ensure_ascii=False)}
 
         try:
             daily_all = fetch_task.result()
@@ -97,10 +90,7 @@ async def run_screen(req: ScreenRequest):
             return
 
         # ---- ステップ3: MA計算 ----
-        _send(_WEIGHT_UNIVERSE + _WEIGHT_OHLCV, "移動平均を計算中...")
-        while not queue.empty():
-            yield {"data": json.dumps(await queue.get(), ensure_ascii=False)}
-
+        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV, "移動平均を計算中..."), ensure_ascii=False)}
         daily_ma, weekly_ma = await asyncio.to_thread(dp.compute_all_mas, daily_all)
 
         price_pass = dp.filter_by_price(daily_ma, req.max_price)
@@ -109,13 +99,9 @@ async def run_screen(req: ScreenRequest):
         total_universe = len(set(universe_df["Code"].astype(str)))
         stock_frames = dp.build_stock_frames(daily_ma, weekly_ma, candidate_codes)
 
-        _send(_WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA, f"スクリーニング中（{len(stock_frames)} 銘柄）...")
-        yield {"data": json.dumps(await queue.get() if not queue.empty() else
-               {"type": "progress", "pct": _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA,
-                "message": f"スクリーニング中（{len(stock_frames)} 銘柄）...",
-                "elapsed": int(time.monotonic() - t0), "eta": None}, ensure_ascii=False)}
-
         # ---- ステップ4: スクリーニング ----
+        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA, f"スクリーニング中（{len(stock_frames)} 銘柄）..."), ensure_ascii=False)}
+
         def _run_screening() -> tuple[list[ScreenHit], list[tuple]]:
             result_hits: list[ScreenHit] = []
             result_tasks = []
@@ -148,10 +134,7 @@ async def run_screen(req: ScreenRequest):
         hits, corp_tasks = await asyncio.to_thread(_run_screening)
 
         # ---- ステップ5: コーポレートアクション ----
-        _send(_WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN,
-              f"コーポレート情報を取得中（{len(corp_tasks)} 銘柄）...")
-        while not queue.empty():
-            yield {"data": json.dumps(await queue.get(), ensure_ascii=False)}
+        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN, f"コーポレート情報を取得中（{len(corp_tasks)} 銘柄）..."), ensure_ascii=False)}
 
         if corp_tasks:
             events_results = await asyncio.gather(*[
