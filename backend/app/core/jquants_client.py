@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import jquantsapi
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -52,20 +53,28 @@ def get_daily_ohlcv(
     dates = pd.date_range(start_dt, end_capped, freq="B")  # 営業日のみ（週末スキップ）
 
     frames: list[pd.DataFrame] = []
-    for d in dates:
-        date_str = d.strftime("%Y-%m-%d")
+    batch_size = 3
+
+    def _fetch_one(date_str: str) -> pd.DataFrame:
         for attempt in range(3):
             try:
-                df = client.get_eq_bars_daily(date_yyyymmdd=date_str)
-                if not df.empty:
-                    frames.append(df)
-                    time.sleep(0.5)  # データがある日のみ0.5秒待機
-                break
+                return client.get_eq_bars_daily(date_yyyymmdd=date_str)
             except Exception as e:
                 if "429" in str(e) and attempt < 2:
-                    time.sleep(30 * (attempt + 1))
+                    time.sleep(20 * (attempt + 1))
                 else:
-                    break  # 空データの日はスキップ
+                    return pd.DataFrame()
+        return pd.DataFrame()
+
+    for i in range(0, len(dates), batch_size):
+        batch = [d.strftime("%Y-%m-%d") for d in dates[i:i + batch_size]]
+        with ThreadPoolExecutor(max_workers=batch_size) as ex:
+            futures = [ex.submit(_fetch_one, d) for d in batch]
+            for f in as_completed(futures):
+                df = f.result()
+                if not df.empty:
+                    frames.append(df)
+        time.sleep(0.5)  # バッチ間 0.5秒待機
 
     if not frames:
         return pd.DataFrame()

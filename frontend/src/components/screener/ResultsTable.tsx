@@ -5,6 +5,7 @@ import ResultRow from "./ResultRow";
 interface Props {
   result: ScreenResponse | null;
   isLoading: boolean;
+  progress: string;
   error: Error | null;
 }
 
@@ -13,7 +14,7 @@ const HEADERS = [
   "シグナル", "ヒット条件", "注意情報", "指数連動性",
 ];
 
-export default function ResultsTable({ result, isLoading, error }: Props) {
+export default function ResultsTable({ result, isLoading, progress, error }: Props) {
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -21,8 +22,8 @@ export default function ResultsTable({ result, isLoading, error }: Props) {
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-spin">⟳</div>
-          <p className="text-gray-300 font-medium">スクリーニング中...</p>
-          <p className="text-gray-500 text-sm mt-2">初回はJ-Quantsからデータを取得するため<br />数分かかる場合があります。そのままお待ちください。</p>
+          <p className="text-gray-300 font-medium">{progress || "処理中..."}</p>
+          <p className="text-gray-500 text-sm mt-2">初回はJ-Quantsからデータを取得するため<br />数分かかります。そのままお待ちください。</p>
         </div>
       </div>
     );

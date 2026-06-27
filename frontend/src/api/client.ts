@@ -3,11 +3,51 @@ import type { ScreenRequest, ScreenResponse, ChartData } from "../types";
 
 const api = axios.create({ baseURL: "/api", timeout: 30_000 });
 
-export async function runScreen(req: ScreenRequest): Promise<ScreenResponse> {
-  const { data } = await api.post<ScreenResponse>("/screen", req, {
-    timeout: 600_000, // 初回データ取得は最大10分
-  });
-  return data;
+export function streamScreen(
+  req: ScreenRequest,
+  onProgress: (msg: string) => void,
+  onResult: (res: ScreenResponse) => void,
+  onError: (msg: string) => void,
+): () => void {
+  const ctrl = new AbortController();
+
+  fetch("/api/screen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify(req),
+    signal: ctrl.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const text = await res.text();
+        onError(`サーバーエラー (${res.status}): ${text}`);
+        return;
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          try {
+            const payload = JSON.parse(line.slice(5).trim());
+            if (payload.type === "progress") onProgress(payload.message);
+            else if (payload.type === "result") onResult(payload.data as ScreenResponse);
+            else if (payload.type === "error") onError(payload.message);
+          } catch {}
+        }
+      }
+    })
+    .catch((e) => {
+      if (e?.name !== "AbortError") onError(e?.message ?? "通信エラー");
+    });
+
+  return () => ctrl.abort();
 }
 
 export async function fetchChart(
