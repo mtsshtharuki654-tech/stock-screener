@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot
 from app.core import data_pipeline as dp, screener as sc
@@ -19,8 +19,17 @@ async def run_screen(req: ScreenRequest) -> ScreenResponse:
     t0 = time.monotonic()
 
     # --- 1. データ取得 & MA計算 ---
-    universe_df = dp.load_universe(req.segments)
-    daily_all = dp.load_daily_ohlcv(req.segments)
+    try:
+        universe_df = dp.load_universe(req.segments)
+        daily_all = dp.load_daily_ohlcv(req.segments)
+    except Exception as e:
+        msg = str(e)
+        if "429" in msg or "too many" in msg.lower() or "RetryError" in type(e).__name__:
+            raise HTTPException(
+                status_code=503,
+                detail="J-Quants APIのレート制限に達しました。1〜2分待ってから再試行してください。"
+            )
+        raise
 
     daily_ma, weekly_ma = dp.compute_all_mas(daily_all)
 

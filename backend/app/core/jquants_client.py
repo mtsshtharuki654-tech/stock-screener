@@ -1,3 +1,4 @@
+import time
 import jquantsapi
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -47,9 +48,18 @@ def get_daily_ohlcv(
     V2 columns: Code, Date, O, H, L, C, Vo, AdjFactor, AdjO, AdjH, AdjL, AdjC, AdjVo
     """
     client = get_client()
-    df = client.get_eq_bars_daily_range(start_dt=start_dt, end_dt=_cap_end(end_dt))
-    df["Date"] = pd.to_datetime(df["Date"])
-    return df
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            df = client.get_eq_bars_daily_range(start_dt=start_dt, end_dt=_cap_end(end_dt))
+            df["Date"] = pd.to_datetime(df["Date"])
+            return df
+        except Exception as e:
+            last_exc = e
+            if attempt < 2:
+                wait = 30 * (attempt + 1)  # 30s, 60s
+                time.sleep(wait)
+    raise last_exc
 
 
 def get_daily_ohlcv_single(
