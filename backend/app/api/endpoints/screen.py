@@ -2,6 +2,7 @@ import asyncio
 import time
 from datetime import datetime, timezone, timedelta
 
+import pandas as pd
 from fastapi import APIRouter
 
 from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot
@@ -37,49 +38,52 @@ async def run_screen(req: ScreenRequest) -> ScreenResponse:
     # --- 3. MA付きフレームを構築 ---
     stock_frames = dp.build_stock_frames(daily_ma, weekly_ma, candidate_codes)
 
-    # --- 4. スクリーニング ---
-    hits: list[ScreenHit] = []
-    corp_tasks = []
-
-    for code, frames in stock_frames.items():
-        matched = sc.run_conditions(frames["daily"], frames["weekly"], req.conditions)
-        if not matched:
-            continue
-
-        daily_df = frames["daily"]
-        weekly_df = frames["weekly"]
-        row = universe_df[universe_df["Code"].astype(str) == code]
-        name = str(row["CoName"].iloc[0]) if not row.empty else code
-        segment_en = str(row["MktNmEn"].iloc[0]) if not row.empty else "Prime"
-
-        last_price = float(daily_df["AdjC"].iloc[-1])
-        last_volume = int(daily_df["AdjVo"].iloc[-1])
-        avg_weekly_volume = int(weekly_df["Volume"].iloc[-4:].mean() / 5) if len(weekly_df) >= 4 else 0
-
-        def _ma_snap(df, col_suffix=""):
-            return MASnapshot(
-                ma5=round(float(df["MA5"].iloc[-1]), 2) if "MA5" in df.columns else 0,
-                ma20=round(float(df["MA20"].iloc[-1]), 2) if "MA20" in df.columns else 0,
-                ma60=round(float(df["MA60"].iloc[-1]), 2) if "MA60" in df.columns else 0,
-            )
-
-        corr = get_correlation_for_stock(daily_df, segment_en)
-
-        hit = ScreenHit(
-            code=code,
-            name=name,
-            segment=segment_en,
-            last_price=last_price,
-            last_volume=last_volume,
-            avg_weekly_volume=avg_weekly_volume,
-            conditions_matched=matched,
-            signal_type=sc.determine_signal_type(matched),
-            weekly_ma=_ma_snap(weekly_df),
-            daily_ma=_ma_snap(daily_df),
-            index_correlation=corr,
+    # --- 4. スクリーニング（CPU バウンドなのでスレッドで実行）---
+    def _ma_snap(df: pd.DataFrame) -> MASnapshot:
+        return MASnapshot(
+            ma5=round(float(df["MA5"].iloc[-1]), 2) if "MA5" in df.columns else 0,
+            ma20=round(float(df["MA20"].iloc[-1]), 2) if "MA20" in df.columns else 0,
+            ma60=round(float(df["MA60"].iloc[-1]), 2) if "MA60" in df.columns else 0,
         )
-        corp_tasks.append((hit, code, segment_en, daily_df))
-        hits.append(hit)
+
+    def _run_screening() -> tuple[list[ScreenHit], list[tuple]]:
+        result_hits: list[ScreenHit] = []
+        result_tasks = []
+        for code, frames in stock_frames.items():
+            matched = sc.run_conditions(frames["daily"], frames["weekly"], req.conditions)
+            if not matched:
+                continue
+
+            daily_df = frames["daily"]
+            weekly_df = frames["weekly"]
+            row = universe_df[universe_df["Code"].astype(str) == code]
+            name = str(row["CoName"].iloc[0]) if not row.empty else code
+            segment_en = str(row["MktNmEn"].iloc[0]) if not row.empty else "Prime"
+
+            last_price = float(daily_df["AdjC"].iloc[-1])
+            last_volume = int(daily_df["AdjVo"].iloc[-1])
+            avg_weekly_volume = int(weekly_df["Volume"].iloc[-4:].mean() / 5) if len(weekly_df) >= 4 else 0
+
+            corr = get_correlation_for_stock(daily_df, segment_en)
+
+            hit = ScreenHit(
+                code=code,
+                name=name,
+                segment=segment_en,
+                last_price=last_price,
+                last_volume=last_volume,
+                avg_weekly_volume=avg_weekly_volume,
+                conditions_matched=matched,
+                signal_type=sc.determine_signal_type(matched),
+                weekly_ma=_ma_snap(weekly_df),
+                daily_ma=_ma_snap(daily_df),
+                index_correlation=corr,
+            )
+            result_tasks.append((hit, code, segment_en, daily_df))
+            result_hits.append(hit)
+        return result_hits, result_tasks
+
+    hits, corp_tasks = await asyncio.to_thread(_run_screening)
 
     # --- 5. コーポレートアクション（ヒット銘柄のみ） ---
     if corp_tasks:

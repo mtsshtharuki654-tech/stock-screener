@@ -401,4 +401,4 @@ def determine_signal_type(conditions_matched: list[str]) -> str:
         return "long"
     if has_short:
         return "short"
-    return "long"
+    return "mixed"

@@ -3,6 +3,7 @@ import type { ScreenHit } from "../types";
 import clsx from "clsx";
 import DualChartLayout from "../components/chart/DualChartLayout";
 import { useChartData } from "../hooks/useChartData";
+import { getCachedHit } from "../hooks/useScreener";
 import type { IndexCorrelation, CorporateEvents } from "../types";
 
 function CorrInfo({ corr }: { corr: IndexCorrelation | null }) {
@@ -49,7 +50,9 @@ export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const hit = (location.state as { hit?: ScreenHit } | null)?.hit ?? null;
+  const hit =
+    (location.state as { hit?: ScreenHit } | null)?.hit ??
+    (code ? getCachedHit(code) : null);
   const { data: weeklyData } = useChartData(code ?? null, "weekly", 10);
 
   if (!code) return null;
