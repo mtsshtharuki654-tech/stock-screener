@@ -45,21 +45,33 @@ def get_daily_ohlcv(
 ) -> pd.DataFrame:
     """
     Fetch adjusted daily OHLCV for all stocks over the date range.
-    V2 columns: Code, Date, O, H, L, C, Vo, AdjFactor, AdjO, AdjH, AdjL, AdjC, AdjVo
+    Sequential fetch with rate-limit-friendly interval (avoids 429 from parallel workers).
     """
     client = get_client()
-    last_exc: Exception | None = None
-    for attempt in range(3):
-        try:
-            df = client.get_eq_bars_daily_range(start_dt=start_dt, end_dt=_cap_end(end_dt))
-            df["Date"] = pd.to_datetime(df["Date"])
-            return df
-        except Exception as e:
-            last_exc = e
-            if attempt < 2:
-                wait = 30 * (attempt + 1)  # 30s, 60s
-                time.sleep(wait)
-    raise last_exc
+    end_capped = _cap_end(end_dt)
+    dates = pd.date_range(start_dt, end_capped, freq="B")  # 営業日のみ（週末スキップ）
+
+    frames: list[pd.DataFrame] = []
+    for d in dates:
+        date_str = d.strftime("%Y-%m-%d")
+        for attempt in range(3):
+            try:
+                df = client.get_eq_bars_daily(date_yyyymmdd=date_str)
+                if not df.empty:
+                    frames.append(df)
+                    time.sleep(0.5)  # データがある日のみ0.5秒待機
+                break
+            except Exception as e:
+                if "429" in str(e) and attempt < 2:
+                    time.sleep(30 * (attempt + 1))
+                else:
+                    break  # 空データの日はスキップ
+
+    if not frames:
+        return pd.DataFrame()
+    result = pd.concat(frames).sort_values(["Code", "Date"]).reset_index(drop=True)
+    result["Date"] = pd.to_datetime(result["Date"])
+    return result
 
 
 def get_daily_ohlcv_single(
