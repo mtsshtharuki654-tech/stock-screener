@@ -5,7 +5,7 @@ const api = axios.create({ baseURL: "/api", timeout: 30_000 });
 
 export function streamScreen(
   req: ScreenRequest,
-  onProgress: (msg: string) => void,
+  onProgress: (msg: string, pct: number, elapsed: number, eta: number | null) => void,
   onResult: (res: ScreenResponse) => void,
   onError: (msg: string) => void,
 ): () => void {
@@ -36,7 +36,8 @@ export function streamScreen(
           if (!line.startsWith("data:")) continue;
           try {
             const payload = JSON.parse(line.slice(5).trim());
-            if (payload.type === "progress") onProgress(payload.message);
+            if (payload.type === "progress")
+              onProgress(payload.message, payload.pct ?? 0, payload.elapsed ?? 0, payload.eta ?? null);
             else if (payload.type === "result") onResult(payload.data as ScreenResponse);
             else if (payload.type === "error") onError(payload.message);
           } catch {}

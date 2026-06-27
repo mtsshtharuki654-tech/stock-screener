@@ -6,6 +6,9 @@ interface Props {
   result: ScreenResponse | null;
   isLoading: boolean;
   progress: string;
+  pct: number;
+  elapsed: number;
+  eta: number | null;
   error: Error | null;
 }
 
@@ -14,16 +17,42 @@ const HEADERS = [
   "シグナル", "ヒット条件", "注意情報", "指数連動性",
 ];
 
-export default function ResultsTable({ result, isLoading, progress, error }: Props) {
+function formatTime(secs: number): string {
+  if (secs < 60) return `${secs}秒`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return s > 0 ? `${m}分${s}秒` : `${m}分`;
+}
+
+export default function ResultsTable({ result, isLoading, progress, pct, elapsed, eta, error }: Props) {
   const navigate = useNavigate();
 
   if (isLoading) {
+    const displayPct = Math.max(0, Math.min(100, pct));
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-4xl mb-4 animate-spin">⟳</div>
-          <p className="text-gray-300 font-medium">{progress || "処理中..."}</p>
-          <p className="text-gray-500 text-sm mt-2">初回はJ-Quantsからデータを取得するため<br />数分かかります。そのままお待ちください。</p>
+        <div className="w-full max-w-md px-8">
+          <div className="text-center mb-6">
+            <div className="text-4xl mb-4 animate-spin">⟳</div>
+            <p className="text-gray-300 font-medium">{progress || "処理中..."}</p>
+            <p className="text-gray-500 text-sm mt-2">初回はJ-Quantsからデータを取得するため<br />数分かかります。そのままお待ちください。</p>
+          </div>
+
+          {/* 進捗バー */}
+          <div className="w-full bg-gray-800 rounded-full h-3 mb-3 overflow-hidden">
+            <div
+              className="h-3 rounded-full bg-blue-500 transition-all duration-500"
+              style={{ width: `${displayPct}%` }}
+            />
+          </div>
+
+          <div className="flex justify-between text-sm text-gray-400">
+            <span>{displayPct.toFixed(1)}%</span>
+            <span className="flex gap-3">
+              {elapsed > 0 && <span>経過 {formatTime(elapsed)}</span>}
+              {eta != null && eta > 0 && <span>残り約 {formatTime(eta)}</span>}
+            </span>
+          </div>
         </div>
       </div>
     );

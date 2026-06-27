@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, timezone
@@ -29,7 +30,10 @@ def load_universe(segments: list[str]) -> pd.DataFrame:
     return df
 
 
-def load_daily_ohlcv(segments: list[str]) -> pd.DataFrame:
+def load_daily_ohlcv(
+    segments: list[str],
+    progress_cb: "Callable[[int, int], None] | None" = None,
+) -> pd.DataFrame:
     """
     Load daily OHLCV for all Prime+Growth stocks with parquet cache and incremental update.
     """
@@ -43,9 +47,11 @@ def load_daily_ohlcv(segments: list[str]) -> pd.DataFrame:
         delta_start = last_date + timedelta(days=1)
 
         if delta_start.date() >= end.date():
+            if progress_cb:
+                progress_cb(1, 1)  # キャッシュヒット = 即完了
             return cached
 
-        delta = jq.get_daily_ohlcv(delta_start, end)
+        delta = jq.get_daily_ohlcv(delta_start, end, progress_cb=progress_cb)
         if not delta.empty:
             merged = pd.concat([cached, delta]).drop_duplicates(subset=["Code", "Date"])
             merged = merged.sort_values(["Code", "Date"]).reset_index(drop=True)
@@ -53,7 +59,7 @@ def load_daily_ohlcv(segments: list[str]) -> pd.DataFrame:
             return merged
         return cached
 
-    df = jq.get_daily_ohlcv(start, end)
+    df = jq.get_daily_ohlcv(start, end, progress_cb=progress_cb)
     df.to_parquet(DAILY_CACHE)
     return df
 

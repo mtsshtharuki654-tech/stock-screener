@@ -25,6 +25,9 @@ export interface ScreenerState {
   data: ScreenResponse | null;
   isPending: boolean;
   progress: string;
+  pct: number;
+  elapsed: number;
+  eta: number | null;
   error: Error | null;
 }
 
@@ -33,22 +36,25 @@ export function useScreener() {
     data: null,
     isPending: false,
     progress: "",
+    pct: 0,
+    elapsed: 0,
+    eta: null,
     error: null,
   });
   const cancelRef = useRef<(() => void) | null>(null);
 
   const mutate = useCallback((req: ScreenRequest) => {
     cancelRef.current?.();
-    setState({ data: null, isPending: true, progress: "接続中...", error: null });
+    setState({ data: null, isPending: true, progress: "接続中...", pct: 0, elapsed: 0, eta: null, error: null });
 
     const cancel = streamScreen(
       req,
-      (msg) => setState((s) => ({ ...s, progress: msg })),
+      (msg, pct, elapsed, eta) => setState((s) => ({ ...s, progress: msg, pct, elapsed, eta })),
       (res) => {
         cacheHits(res.hits);
-        setState({ data: res, isPending: false, progress: "", error: null });
+        setState({ data: res, isPending: false, progress: "", pct: 100, elapsed: 0, eta: null, error: null });
       },
-      (msg) => setState({ data: null, isPending: false, progress: "", error: new Error(msg) }),
+      (msg) => setState({ data: null, isPending: false, progress: "", pct: 0, elapsed: 0, eta: null, error: new Error(msg) }),
     );
     cancelRef.current = cancel;
   }, []);

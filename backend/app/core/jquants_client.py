@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import jquantsapi
 import pandas as pd
@@ -43,17 +44,20 @@ def get_universe(segments: list[str]) -> pd.DataFrame:
 def get_daily_ohlcv(
     start_dt: datetime,
     end_dt: datetime,
+    progress_cb: "Callable[[int, int], None] | None" = None,
 ) -> pd.DataFrame:
     """
     Fetch adjusted daily OHLCV for all stocks over the date range.
-    Sequential fetch with rate-limit-friendly interval (avoids 429 from parallel workers).
+    progress_cb(fetched_batches, total_batches) が渡された場合は都度呼び出す。
     """
     client = get_client()
     end_capped = _cap_end(end_dt)
-    dates = pd.date_range(start_dt, end_capped, freq="B")  # 営業日のみ（週末スキップ）
+    dates = pd.date_range(start_dt, end_capped, freq="B")  # 営業日のみ
 
     frames: list[pd.DataFrame] = []
     batch_size = 3
+    batches = [dates[i:i + batch_size] for i in range(0, len(dates), batch_size)]
+    total_batches = len(batches)
 
     def _fetch_one(date_str: str) -> pd.DataFrame:
         for attempt in range(3):
@@ -66,15 +70,17 @@ def get_daily_ohlcv(
                     return pd.DataFrame()
         return pd.DataFrame()
 
-    for i in range(0, len(dates), batch_size):
-        batch = [d.strftime("%Y-%m-%d") for d in dates[i:i + batch_size]]
+    for idx, batch_dates in enumerate(batches):
+        batch = [d.strftime("%Y-%m-%d") for d in batch_dates]
         with ThreadPoolExecutor(max_workers=batch_size) as ex:
             futures = [ex.submit(_fetch_one, d) for d in batch]
             for f in as_completed(futures):
                 df = f.result()
                 if not df.empty:
                     frames.append(df)
-        time.sleep(0.5)  # バッチ間 0.5秒待機
+        if progress_cb:
+            progress_cb(idx + 1, total_batches)
+        time.sleep(0.5)
 
     if not frames:
         return pd.DataFrame()
