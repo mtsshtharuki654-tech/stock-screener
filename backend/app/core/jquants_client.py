@@ -1,12 +1,14 @@
 import jquantsapi
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.config import settings
 
 _client: jquantsapi.ClientV2 | None = None
 
+JST = timezone(timedelta(hours=9))
+
 # V2 subscription end date (update if plan is renewed)
-SUBSCRIPTION_END = datetime(2026, 4, 5)
+SUBSCRIPTION_END = datetime(2026, 4, 5, tzinfo=JST)
 
 # V2 column name mappings (short abbreviations)
 # EQ master: MktNm=市場名(JP), MktNmEn=市場名(EN), CoName=会社名
