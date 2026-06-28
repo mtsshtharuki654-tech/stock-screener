@@ -106,9 +106,8 @@ async def run_screen(req: ScreenRequest):
         # ---- ステップ4: スクリーニング ----
         yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA, f"スクリーニング中（{len(stock_frames)} 銘柄）..."), ensure_ascii=False)}
 
-        def _run_screening() -> tuple[list[ScreenHit], list[tuple]]:
-            result_hits: list[ScreenHit] = []
-            result_tasks = []
+        def _run_screening() -> list[ScreenHit]:
+            result: list[ScreenHit] = []
             for code, frames in stock_frames.items():
                 matched = sc.run_conditions(frames["daily"], frames["weekly"], req.conditions)
                 if not matched:
@@ -118,7 +117,7 @@ async def run_screen(req: ScreenRequest):
                 row = universe_df[universe_df["Code"].astype(str) == code]
                 name = str(row["CoName"].iloc[0]) if not row.empty else code
                 segment_en = str(row["MktNmEn"].iloc[0]) if not row.empty else "Prime"
-                hit = ScreenHit(
+                result.append(ScreenHit(
                     code=code,
                     name=name,
                     segment=segment_en,
@@ -130,22 +129,20 @@ async def run_screen(req: ScreenRequest):
                     weekly_ma=_ma_snap(weekly_df),
                     daily_ma=_ma_snap(daily_df),
                     index_correlation=get_correlation_for_stock(daily_df, segment_en),
-                )
-                result_tasks.append((hit, code, segment_en, daily_df))
-                result_hits.append(hit)
-            return result_hits, result_tasks
+                ))
+            return result
 
-        hits, corp_tasks = await asyncio.to_thread(_run_screening)
+        hits = await asyncio.to_thread(_run_screening)
 
-        # ---- ステップ5: コーポレートアクション ----
-        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN, f"コーポレート情報を取得中（{len(corp_tasks)} 銘柄）..."), ensure_ascii=False)}
+        # ---- ステップ5: コーポレートアクション（条件ヒット銘柄のみ） ----
+        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN, f"コーポレート情報を取得中（{len(hits)} 銘柄）..."), ensure_ascii=False)}
 
-        if corp_tasks:
+        if hits:
             events_results = await asyncio.gather(*[
-                get_corporate_events(code, seg, df)
-                for (hit, code, seg, df) in corp_tasks
+                get_corporate_events(hit.code, hit.segment, stock_frames[hit.code]["daily"])
+                for hit in hits
             ])
-            for (hit, _, _, _), events in zip(corp_tasks, events_results):
+            for hit, events in zip(hits, events_results):
                 hit.corporate_events = events
 
         duration_ms = int((time.monotonic() - t0) * 1000)
