@@ -106,33 +106,76 @@ async def run_screen(req: ScreenRequest):
         # ---- ステップ4: スクリーニング ----
         yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA, f"スクリーニング中（{len(stock_frames)} 銘柄）..."), ensure_ascii=False)}
 
+        # 指数データを事前に非同期取得（タイムアウト付き）。スレッド内でのAPI呼び出しを防ぐ。
+        async def _load_index_safe(code: str) -> pd.DataFrame:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(dp.load_index_ohlcv, code), timeout=10.0
+                )
+            except Exception:
+                return pd.DataFrame()
+
+        index_cache: dict[str, pd.DataFrame] = {}
+        for _idx_code in ("topix", "0049"):
+            index_cache[_idx_code] = await _load_index_safe(_idx_code)
+
+        screen_queue: asyncio.Queue = asyncio.Queue()
+        total_stocks = len(stock_frames)
+
         def _run_screening() -> list[ScreenHit]:
             result: list[ScreenHit] = []
-            for code, frames in stock_frames.items():
-                matched = sc.run_conditions(frames["daily"], frames["weekly"], req.conditions)
-                if not matched:
-                    continue
-                daily_df = frames["daily"]
-                weekly_df = frames["weekly"]
-                row = universe_df[universe_df["Code"].astype(str) == code]
-                name = str(row["CoName"].iloc[0]) if not row.empty else code
-                segment_en = str(row["MktNmEn"].iloc[0]) if not row.empty else "Prime"
-                result.append(ScreenHit(
-                    code=code,
-                    name=name,
-                    segment=segment_en,
-                    last_price=float(daily_df["AdjC"].iloc[-1]),
-                    last_volume=int(daily_df["AdjVo"].iloc[-1]),
-                    avg_weekly_volume=int(weekly_df["Volume"].iloc[-4:].mean() / 5) if len(weekly_df) >= 4 else 0,
-                    conditions_matched=matched,
-                    signal_type=sc.determine_signal_type(matched),
-                    weekly_ma=_ma_snap(weekly_df),
-                    daily_ma=_ma_snap(daily_df),
-                    index_correlation=get_correlation_for_stock(daily_df, segment_en),
-                ))
+            for i, (code, frames) in enumerate(stock_frames.items()):
+                try:
+                    matched = sc.run_conditions(frames["daily"], frames["weekly"], req.conditions)
+                    if not matched:
+                        continue
+                    daily_df = frames["daily"]
+                    weekly_df = frames["weekly"]
+                    row = universe_df[universe_df["Code"].astype(str) == code]
+                    name = str(row["CoName"].iloc[0]) if not row.empty else code
+                    segment_en = str(row["MktNmEn"].iloc[0]) if not row.empty else "Prime"
+                    last_vol = daily_df["AdjVo"].iloc[-1]
+                    avg_vol = weekly_df["Volume"].iloc[-4:].mean() / 5 if len(weekly_df) >= 4 else 0.0
+                    result.append(ScreenHit(
+                        code=code,
+                        name=name,
+                        segment=segment_en,
+                        last_price=float(daily_df["AdjC"].iloc[-1]),
+                        last_volume=int(last_vol) if pd.notna(last_vol) else 0,
+                        avg_weekly_volume=int(avg_vol) if pd.notna(avg_vol) else 0,
+                        conditions_matched=matched,
+                        signal_type=sc.determine_signal_type(matched),
+                        weekly_ma=_ma_snap(weekly_df),
+                        daily_ma=_ma_snap(daily_df),
+                        index_correlation=get_correlation_for_stock(daily_df, segment_en, index_cache),
+                    ))
+                except Exception:
+                    pass
+
+                if total_stocks > 0 and ((i + 1) % 50 == 0 or (i + 1) == total_stocks):
+                    pct = _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN * (i + 1) / total_stocks
+                    payload = _make_progress(t0, pct, f"スクリーニング中（{i + 1}/{total_stocks} 銘柄）...")
+                    loop.call_soon_threadsafe(screen_queue.put_nowait, payload)
+
             return result
 
-        hits = await asyncio.to_thread(_run_screening)
+        screen_task = asyncio.create_task(asyncio.to_thread(_run_screening))
+
+        while not screen_task.done():
+            try:
+                payload = await asyncio.wait_for(screen_queue.get(), timeout=2.0)
+                yield {"data": json.dumps(payload, ensure_ascii=False)}
+            except asyncio.TimeoutError:
+                pass
+
+        while not screen_queue.empty():
+            yield {"data": json.dumps(screen_queue.get_nowait(), ensure_ascii=False)}
+
+        try:
+            hits = screen_task.result()
+        except Exception as e:
+            yield {"data": json.dumps({"type": "error", "message": f"スクリーニングエラー: {str(e)}"}, ensure_ascii=False)}
+            return
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         response = ScreenResponse(
