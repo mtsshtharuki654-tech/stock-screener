@@ -57,6 +57,9 @@ def load_daily_ohlcv(
             merged = merged.sort_values(["Code", "Date"]).reset_index(drop=True)
             merged.to_parquet(DAILY_CACHE)
             return merged
+        # デルタなし（取得範囲なし）のときも完了通知
+        if progress_cb:
+            progress_cb(1, 1)
         return cached
 
     df = jq.get_daily_ohlcv(start, end, progress_cb=progress_cb)

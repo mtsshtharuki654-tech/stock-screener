@@ -72,7 +72,7 @@ async def run_screen(req: ScreenRequest):
 
         while not fetch_task.done():
             try:
-                payload = await asyncio.wait_for(asyncio.shield(queue.get()), timeout=2.0)
+                payload = await asyncio.wait_for(queue.get(), timeout=2.0)
                 yield {"data": json.dumps(payload, ensure_ascii=False)}
             except asyncio.TimeoutError:
                 pass

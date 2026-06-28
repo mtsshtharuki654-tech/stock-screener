@@ -60,15 +60,13 @@ def get_daily_ohlcv(
     total_batches = len(batches)
 
     def _fetch_one(date_str: str) -> pd.DataFrame:
-        for attempt in range(3):
+        # 1呼び出しに最大15秒。ハングや429ループを防ぐ。
+        with ThreadPoolExecutor(max_workers=1) as inner_ex:
+            fut = inner_ex.submit(client.get_eq_bars_daily, date_yyyymmdd=date_str)
             try:
-                return client.get_eq_bars_daily(date_yyyymmdd=date_str)
-            except Exception as e:
-                if "429" in str(e) and attempt < 2:
-                    time.sleep(20 * (attempt + 1))
-                else:
-                    return pd.DataFrame()
-        return pd.DataFrame()
+                return fut.result(timeout=15)
+            except Exception:
+                return pd.DataFrame()
 
     for idx, batch_dates in enumerate(batches):
         batch = [d.strftime("%Y-%m-%d") for d in batch_dates]
@@ -80,7 +78,7 @@ def get_daily_ohlcv(
                     frames.append(df)
         if progress_cb:
             progress_cb(idx + 1, total_batches)
-        time.sleep(0.5)
+        time.sleep(1.0)  # 429対策: バッチ間を1秒に拡大
 
     if not frames:
         return pd.DataFrame()
