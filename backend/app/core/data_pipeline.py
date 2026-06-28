@@ -42,28 +42,33 @@ def load_daily_ohlcv(
 
     if DAILY_CACHE.exists():
         cached = pd.read_parquet(DAILY_CACHE)
-        cached["Date"] = pd.to_datetime(cached["Date"])
-        last_date = cached["Date"].max()
-        delta_start = last_date + timedelta(days=1)
+        # 空・破損キャッシュを無視してフルフェッチへ
+        if cached.empty or "Date" not in cached.columns:
+            DAILY_CACHE.unlink(missing_ok=True)
+        else:
+            cached["Date"] = pd.to_datetime(cached["Date"])
+            last_date = cached["Date"].max()
+            delta_start = last_date + timedelta(days=1)
 
-        if delta_start.date() >= end.date():
+            if delta_start.date() >= end.date():
+                if progress_cb:
+                    progress_cb(1, 1)
+                return cached
+
+            delta = jq.get_daily_ohlcv(delta_start, end, progress_cb=progress_cb)
+            if not delta.empty:
+                merged = pd.concat([cached, delta]).drop_duplicates(subset=["Code", "Date"])
+                merged = merged.sort_values(["Code", "Date"]).reset_index(drop=True)
+                merged.to_parquet(DAILY_CACHE)
+                return merged
+            # デルタなし（取得範囲なし）
             if progress_cb:
-                progress_cb(1, 1)  # キャッシュヒット = 即完了
+                progress_cb(1, 1)
             return cached
 
-        delta = jq.get_daily_ohlcv(delta_start, end, progress_cb=progress_cb)
-        if not delta.empty:
-            merged = pd.concat([cached, delta]).drop_duplicates(subset=["Code", "Date"])
-            merged = merged.sort_values(["Code", "Date"]).reset_index(drop=True)
-            merged.to_parquet(DAILY_CACHE)
-            return merged
-        # デルタなし（取得範囲なし）のときも完了通知
-        if progress_cb:
-            progress_cb(1, 1)
-        return cached
-
     df = jq.get_daily_ohlcv(start, end, progress_cb=progress_cb)
-    df.to_parquet(DAILY_CACHE)
+    if not df.empty:  # 空なら保存しない
+        df.to_parquet(DAILY_CACHE)
     return df
 
 

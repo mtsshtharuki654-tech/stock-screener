@@ -89,6 +89,10 @@ async def run_screen(req: ScreenRequest):
             yield {"data": json.dumps({"type": "error", "message": detail}, ensure_ascii=False)}
             return
 
+        if daily_all.empty or "Date" not in daily_all.columns:
+            yield {"data": json.dumps({"type": "error", "message": "日足データが取得できませんでした。J-Quants APIのレート制限または契約期間を確認してください。"}, ensure_ascii=False)}
+            return
+
         # ---- ステップ3: MA計算 ----
         yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV, "移動平均を計算中..."), ensure_ascii=False)}
         daily_ma, weekly_ma = await asyncio.to_thread(dp.compute_all_mas, daily_all)
