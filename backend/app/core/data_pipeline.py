@@ -54,6 +54,11 @@ def load_universe(segments: list[str]) -> pd.DataFrame:
     return df
 
 
+def _naive(dt: datetime) -> datetime:
+    """タイムゾーンを除去してnaiveなdatetimeに変換。"""
+    return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
+
+
 def load_daily_ohlcv(
     segments: list[str],
     progress_cb: "Callable[[int, int], None] | None" = None,
@@ -66,16 +71,20 @@ def load_daily_ohlcv(
     start = end - timedelta(days=LOOKBACK_DAYS)
     end_capped = jq._cap_end(end)
 
+    # pd.date_range はnaiveで統一
+    start_naive     = _naive(start)
+    end_capped_naive = _naive(end_capped)
+
     # キャッシュ読み込み
     cached = _load_cache()
-    fetch_start = start
+    fetch_start_naive = start_naive
     if not cached.empty:
-        last_date = cached["Date"].max()
-        fetch_start = last_date + timedelta(days=1)
+        last_date = pd.Timestamp(cached["Date"].max()).to_pydatetime()
+        fetch_start_naive = _naive(last_date) + timedelta(days=1)
 
     # 取得する日付リスト
-    all_dates = list(pd.date_range(start, end_capped, freq="B"))
-    remaining = list(pd.date_range(fetch_start, end_capped, freq="B"))
+    all_dates = list(pd.date_range(start_naive, end_capped_naive, freq="B"))
+    remaining = list(pd.date_range(fetch_start_naive, end_capped_naive, freq="B"))
 
     if not remaining:
         if progress_cb:
