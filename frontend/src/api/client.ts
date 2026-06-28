@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ScreenRequest, ScreenResponse, ChartData } from "../types";
+import type { ScreenRequest, ScreenResponse, ChartData, CorporateEvents } from "../types";
 
 const api = axios.create({ baseURL: "/api", timeout: 30_000 });
 
@@ -59,6 +59,11 @@ export async function fetchChart(
   const { data } = await api.get<ChartData>(`/stocks/${code}/chart`, {
     params: { timeframe, periods },
   });
+  return data;
+}
+
+export async function fetchEvents(code: string): Promise<CorporateEvents> {
+  const { data } = await api.get<CorporateEvents>(`/events/${code}`);
   return data;
 }
 

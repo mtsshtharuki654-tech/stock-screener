@@ -7,7 +7,7 @@ import pandas as pd
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
-from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot
+from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot, CorporateEvents
 from app.core import data_pipeline as dp, screener as sc
 from app.core.corporate_events import fetch_earnings_schedule, build_corporate_events
 from app.core.index_correlation import get_correlation_for_stock
@@ -16,7 +16,7 @@ router = APIRouter()
 JST = timezone(timedelta(hours=9))
 
 _WEIGHT_UNIVERSE  = 2
-_WEIGHT_OHLCV     = 80
+_WEIGHT_OHLCV     = 85
 _WEIGHT_MA        = 8
 _WEIGHT_SCREEN    = 5
 _WEIGHT_CORP      = 5
@@ -134,13 +134,6 @@ async def run_screen(req: ScreenRequest):
 
         hits = await asyncio.to_thread(_run_screening)
 
-        # ---- ステップ5: コーポレートアクション（決算カレンダーを1回取得、per-stockは同期参照） ----
-        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN, "コーポレート情報を取得中..."), ensure_ascii=False)}
-
-        earnings_df = await fetch_earnings_schedule()
-        for hit in hits:
-            hit.corporate_events = build_corporate_events(hit.code, earnings_df)
-
         duration_ms = int((time.monotonic() - t0) * 1000)
         response = ScreenResponse(
             screened_at=datetime.now(JST),
@@ -154,3 +147,10 @@ async def run_screen(req: ScreenRequest):
         )}
 
     return EventSourceResponse(generate())
+
+
+@router.get("/events/{code}", response_model=CorporateEvents)
+async def get_stock_events(code: str):
+    """銘柄コードの最新コーポレート情報を返す（オンデマンド）。"""
+    earnings_df = await fetch_earnings_schedule()
+    return build_corporate_events(code, earnings_df)

@@ -25,17 +25,12 @@ function CorrInfo({ corr }: { corr: IndexCorrelation | null }) {
 function AlertBadges({ events }: { events?: CorporateEvents }) {
   if (!events) return null;
   const items: { label: string; color: string }[] = [];
-  if (events.under_supervision) items.push({ label: "監理銘柄", color: "bg-red-800 text-red-100" });
-  if (events.warrant.detected) items.push({ label: "ワラント", color: "bg-red-700 text-red-100" });
-  if (events.secondary_offer.detected) items.push({ label: "公募増資", color: "bg-red-700 text-red-100" });
-  if (events.margin_restriction) items.push({ label: "信用規制", color: "bg-red-700 text-red-100" });
-  if (events.earnings_revision_down.detected) items.push({ label: "業績下方", color: "bg-red-600 text-red-100" });
-  if (events.tob.detected) items.push({ label: "TOB", color: "bg-yellow-700 text-yellow-100" });
-  if (events.earnings.is_near) items.push({ label: `決算${events.earnings.days_until}日後`, color: "bg-yellow-600 text-yellow-100" });
-  if (events.large_holder.detected) items.push({ label: "大量保有", color: "bg-blue-700 text-blue-100" });
-  if (events.split.recent) items.push({ label: "株分割済", color: "bg-blue-600 text-blue-100" });
-  if (events.buyback.detected) items.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100" });
-  if (events.earnings_revision_up.detected) items.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100" });
+  if (events.warrant) items.push({ label: "ワラント", color: "bg-red-700 text-red-100" });
+  if (events.secondary_offer) items.push({ label: "公募増資", color: "bg-red-700 text-red-100" });
+  if (events.earnings_revision_down) items.push({ label: "業績下方", color: "bg-red-600 text-red-100" });
+  if (events.earnings_near) items.push({ label: `決算${events.earnings_days_until}日後`, color: "bg-yellow-600 text-yellow-100" });
+  if (events.buyback) items.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100" });
+  if (events.earnings_revision_up) items.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100" });
   if (items.length === 0) return null;
   return (
     <div className="flex gap-1 flex-wrap">

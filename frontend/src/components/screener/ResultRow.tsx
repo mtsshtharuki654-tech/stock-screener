@@ -1,32 +1,32 @@
+import { useState } from "react";
 import clsx from "clsx";
-import type { ScreenHit } from "../../types";
+import type { CorporateEvents, ScreenHit } from "../../types";
 import { CONDITION_LABELS, LONG_CONDITIONS } from "../../types";
+import { fetchEvents } from "../../api/client";
 
 interface Props {
   hit: ScreenHit;
   onClick: () => void;
 }
 
-function EventBadges({ events }: { events: ScreenHit["corporate_events"] }) {
+function EventBadges({ events }: { events: CorporateEvents }) {
   const badges: { label: string; color: string }[] = [];
 
-  // 下落リスク（赤）
   if (events.warrant)
     badges.push({ label: "ワラント", color: "bg-red-700 text-red-100" });
   if (events.secondary_offer)
     badges.push({ label: "公募増資", color: "bg-red-700 text-red-100" });
   if (events.earnings_revision_down)
     badges.push({ label: "業績下方", color: "bg-red-600 text-red-100" });
-
-  // 注意（黄）
   if (events.earnings_near && events.earnings_days_until != null)
     badges.push({ label: `決算${events.earnings_days_until}日後`, color: "bg-yellow-600 text-yellow-100" });
-
-  // 上昇サポート（緑）
   if (events.buyback)
     badges.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100" });
   if (events.earnings_revision_up)
     badges.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100" });
+
+  if (badges.length === 0)
+    return <span className="text-xs text-gray-600">なし</span>;
 
   return (
     <div className="flex flex-wrap gap-1">
@@ -42,11 +42,9 @@ function EventBadges({ events }: { events: ScreenHit["corporate_events"] }) {
 function CorrBadge({ corr }: { corr: ScreenHit["index_correlation"] }) {
   if (!corr) return null;
   const color =
-    corr.label === "指数連動型"
-      ? "text-blue-300"
-      : corr.label === "逆相関型"
-      ? "text-orange-300"
-      : "text-emerald-300";
+    corr.label === "指数連動型" ? "text-blue-300"
+    : corr.label === "逆相関型"  ? "text-orange-300"
+    : "text-emerald-300";
   return (
     <span className={clsx("text-xs", color)}>
       {corr.label} β{corr.beta}
@@ -54,9 +52,26 @@ function CorrBadge({ corr }: { corr: ScreenHit["index_correlation"] }) {
   );
 }
 
-// hit object is passed via router state so StockDetailPage can show corporate events
 export default function ResultRow({ hit, onClick }: Props) {
-  const isLong = hit.signal_type === "long" || hit.signal_type === "mixed";
+  const [events, setEvents] = useState<CorporateEvents | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const handleFetch = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLoading(true);
+    setError(false);
+    try {
+      const data = await fetchEvents(hit.code);
+      setEvents(data);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isLong  = hit.signal_type === "long"  || hit.signal_type === "mixed";
   const isShort = hit.signal_type === "short" || hit.signal_type === "mixed";
 
   return (
@@ -64,8 +79,10 @@ export default function ResultRow({ hit, onClick }: Props) {
       onClick={onClick}
       className="border-b border-gray-800 hover:bg-gray-800 cursor-pointer transition-colors"
     >
-      {/* コード・銘柄名 */}
+      {/* コード */}
       <td className="px-3 py-2 text-sm font-mono text-blue-400">{hit.code}</td>
+
+      {/* 銘柄名 */}
       <td className="px-3 py-2 text-sm">
         <div className="font-medium">{hit.name}</div>
         <span className={clsx(
@@ -75,25 +92,30 @@ export default function ResultRow({ hit, onClick }: Props) {
           {hit.segment}
         </span>
       </td>
+
       {/* 株価 */}
       <td className="px-3 py-2 text-sm text-right font-mono">
         {hit.last_price.toLocaleString()}円
       </td>
+
       {/* 直近出来高 */}
       <td className="px-3 py-2 text-sm text-right font-mono text-gray-300">
         {(hit.last_volume / 10000).toFixed(1)}万
       </td>
+
       {/* 週平均出来高 */}
       <td className="px-3 py-2 text-sm text-right font-mono text-gray-400">
         {(hit.avg_weekly_volume / 10000).toFixed(1)}万
       </td>
+
       {/* シグナル */}
       <td className="px-3 py-2">
         <div className="flex gap-1">
-          {isLong && <span className="text-xs bg-emerald-800 text-emerald-200 px-1.5 py-0.5 rounded">Long</span>}
+          {isLong  && <span className="text-xs bg-emerald-800 text-emerald-200 px-1.5 py-0.5 rounded">Long</span>}
           {isShort && <span className="text-xs bg-rose-800 text-rose-200 px-1.5 py-0.5 rounded">Short</span>}
         </div>
       </td>
+
       {/* ヒット条件 */}
       <td className="px-3 py-2">
         <div className="flex flex-wrap gap-1">
@@ -113,10 +135,29 @@ export default function ResultRow({ hit, onClick }: Props) {
           })}
         </div>
       </td>
-      {/* 注意情報 */}
-      <td className="px-3 py-2">
-        <EventBadges events={hit.corporate_events} />
+
+      {/* コーポレート情報（オンデマンド） */}
+      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+        {events ? (
+          <EventBadges events={events} />
+        ) : (
+          <button
+            onClick={handleFetch}
+            disabled={loading}
+            className={clsx(
+              "text-xs px-2 py-0.5 rounded border transition-colors",
+              loading
+                ? "border-gray-600 text-gray-500 cursor-not-allowed"
+                : error
+                ? "border-red-700 text-red-400 hover:bg-red-900"
+                : "border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200"
+            )}
+          >
+            {loading ? "取得中…" : error ? "再試行" : "調べる"}
+          </button>
+        )}
       </td>
+
       {/* 指数連動性 */}
       <td className="px-3 py-2">
         <CorrBadge corr={hit.index_correlation} />
