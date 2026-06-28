@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -22,11 +23,31 @@ _WEIGHT_SCREEN    = 5
 _WEIGHT_CORP      = 5
 
 
+def _safe_float(val, default: float = 0.0) -> float:
+    """float変換後に NaN/Inf なら default を返す。"""
+    try:
+        v = float(val)
+        return default if (math.isnan(v) or math.isinf(v)) else v
+    except Exception:
+        return default
+
+
+def _clean_nans(obj):
+    """dict/list を再帰的に走査し、NaN/Inf を None に置換してJSON安全にする。"""
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: _clean_nans(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_clean_nans(v) for v in obj]
+    return obj
+
+
 def _ma_snap(df: pd.DataFrame) -> MASnapshot:
     return MASnapshot(
-        ma5=round(float(df["MA5"].iloc[-1]), 2) if "MA5" in df.columns else 0,
-        ma20=round(float(df["MA20"].iloc[-1]), 2) if "MA20" in df.columns else 0,
-        ma60=round(float(df["MA60"].iloc[-1]), 2) if "MA60" in df.columns else 0,
+        ma5=round(_safe_float(df["MA5"].iloc[-1]), 2) if "MA5" in df.columns else 0,
+        ma20=round(_safe_float(df["MA20"].iloc[-1]), 2) if "MA20" in df.columns else 0,
+        ma60=round(_safe_float(df["MA60"].iloc[-1]), 2) if "MA60" in df.columns else 0,
     )
 
 
@@ -140,7 +161,7 @@ async def run_screen(req: ScreenRequest):
                         code=code,
                         name=name,
                         segment=segment_en,
-                        last_price=float(daily_df["AdjC"].iloc[-1]),
+                        last_price=_safe_float(daily_df["AdjC"].iloc[-1]),
                         last_volume=int(last_vol) if pd.notna(last_vol) else 0,
                         avg_weekly_volume=int(avg_vol) if pd.notna(avg_vol) else 0,
                         conditions_matched=matched,
@@ -185,7 +206,7 @@ async def run_screen(req: ScreenRequest):
             duration_ms=duration_ms,
         )
         yield {"data": json.dumps(
-            {"type": "result", "pct": 100, "data": response.model_dump(mode="json")},
+            _clean_nans({"type": "result", "pct": 100, "data": response.model_dump(mode="json")}),
             ensure_ascii=False,
         )}
 
