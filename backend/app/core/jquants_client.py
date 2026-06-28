@@ -11,14 +11,14 @@ _client: jquantsapi.ClientV2 | None = None
 JST = timezone(timedelta(hours=9))
 
 # V2 subscription end date (update if plan is renewed)
-SUBSCRIPTION_END = datetime(2026, 2, 19, tzinfo=JST)
-
-
 def get_client() -> jquantsapi.ClientV2:
     global _client
     if _client is None:
         _client = jquantsapi.ClientV2(api_key=settings.jquants_api_key)
     return _client
+
+
+SUBSCRIPTION_END = datetime(2026, 4, 6, tzinfo=JST)
 
 
 def _cap_end(end_dt: datetime) -> datetime:
