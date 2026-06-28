@@ -9,7 +9,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot
 from app.core import data_pipeline as dp, screener as sc
-from app.core.corporate_events import get_corporate_events
+from app.core.corporate_events import fetch_earnings_schedule, build_corporate_events
 from app.core.index_correlation import get_correlation_for_stock
 
 router = APIRouter()
@@ -134,16 +134,12 @@ async def run_screen(req: ScreenRequest):
 
         hits = await asyncio.to_thread(_run_screening)
 
-        # ---- ステップ5: コーポレートアクション（条件ヒット銘柄のみ） ----
-        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN, f"コーポレート情報を取得中（{len(hits)} 銘柄）..."), ensure_ascii=False)}
+        # ---- ステップ5: コーポレートアクション（決算カレンダーを1回取得、per-stockは同期参照） ----
+        yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN, "コーポレート情報を取得中..."), ensure_ascii=False)}
 
-        if hits:
-            events_results = await asyncio.gather(*[
-                get_corporate_events(hit.code, hit.segment, stock_frames[hit.code]["daily"])
-                for hit in hits
-            ])
-            for hit, events in zip(hits, events_results):
-                hit.corporate_events = events
+        earnings_df = await fetch_earnings_schedule()
+        for hit in hits:
+            hit.corporate_events = build_corporate_events(hit.code, earnings_df)
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         response = ScreenResponse(
