@@ -177,8 +177,9 @@ def add_ma_columns(df: pd.DataFrame, price_col: str = "Close") -> pd.DataFrame:
     df = df.copy()
     for p in [5, 20, 60]:
         col = f"MA{p}"
-        df[col] = df[price_col].rolling(p, min_periods=p).mean()
-        df[f"{col}_slope"] = df[col].pct_change()
+        min_p = max(p // 2, 1)
+        df[col] = df[price_col].rolling(p, min_periods=min_p).mean()
+        df[f"{col}_slope"] = df[col].pct_change(fill_method=None)
     return df
 
 
@@ -186,11 +187,12 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     daily = daily_all.sort_values(["Code", "Date"]).copy()
 
     for p in [5, 20, 60]:
+        min_p = max(p // 2, 1)
         daily[f"MA{p}"] = daily.groupby("Code")["AdjC"].transform(
-            lambda x: x.rolling(p, min_periods=p).mean()
+            lambda x, _p=p, _m=min_p: x.rolling(_p, min_periods=_m).mean()
         )
         daily[f"MA{p}_slope"] = daily.groupby("Code")[f"MA{p}"].transform(
-            lambda x: x.pct_change()
+            lambda x: x.pct_change(fill_method=None)
         )
 
     daily["Open"] = daily["O"]
@@ -199,23 +201,36 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     daily["Close"] = daily["AdjC"]
     daily["Volume"] = daily["AdjVo"]
 
+    # 週足リサンプリング（銘柄ごと）→ MA は一括計算で高速化
     weekly_frames = []
     for code, grp in daily.groupby("Code"):
         wk = resample_to_weekly(grp[["Date", "O", "H", "L", "AdjC", "AdjVo"]])
         wk["Code"] = code
-        wk = add_ma_columns(wk, price_col="Close")
         weekly_frames.append(wk)
 
-    weekly_all = pd.concat(weekly_frames, ignore_index=True) if weekly_frames else pd.DataFrame()
+    if not weekly_frames:
+        return daily, pd.DataFrame()
+
+    weekly_all = pd.concat(weekly_frames, ignore_index=True).sort_values(["Code", "Date"])
+    for p in [5, 20, 60]:
+        min_p = max(p // 2, 1)
+        weekly_all[f"MA{p}"] = weekly_all.groupby("Code")["Close"].transform(
+            lambda x, _p=p, _m=min_p: x.rolling(_p, min_periods=_m).mean()
+        )
+        weekly_all[f"MA{p}_slope"] = weekly_all.groupby("Code")[f"MA{p}"].transform(
+            lambda x: x.pct_change(fill_method=None)
+        )
+
     return daily, weekly_all
 
 
 def filter_by_volume(weekly_all: pd.DataFrame, min_daily_volume: int, weeks: int = 4) -> set[str]:
     passing = set()
     for code, grp in weekly_all.groupby("Code"):
-        if len(grp) < weeks:
+        if len(grp) < 2:
             continue
-        avg_daily = grp["Volume"].iloc[-weeks:].mean() / 5
+        n = min(weeks, len(grp))
+        avg_daily = grp["Volume"].iloc[-n:].mean() / 5
         if avg_daily >= min_daily_volume:
             passing.add(code)
     return passing
@@ -235,6 +250,7 @@ def build_stock_frames(
     for code in codes:
         d = daily_all[daily_all["Code"] == code].sort_values("Date").reset_index(drop=True)
         w = weekly_all[weekly_all["Code"] == code].sort_values("Date").reset_index(drop=True)
-        if len(d) >= 62 and len(w) >= 62:
+        # 日足10本・週足3本あれば評価対象（データが溜まるにつれて条件精度が上がる）
+        if len(d) >= 10 and len(w) >= 3:
             result[code] = {"daily": d, "weekly": w}
     return result

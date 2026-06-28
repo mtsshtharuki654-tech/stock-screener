@@ -95,7 +95,7 @@ def check_ppp_pullback(weekly: pd.DataFrame, _daily: pd.DataFrame = None) -> boo
     """
     PPP押し目: 週足でパーフェクトオーダー維持 + 直近3週に押し目。
     """
-    if len(weekly) < 62:
+    if len(weekly) < 10:
         return False
     latest = weekly.iloc[-1]
 
@@ -125,7 +125,7 @@ def check_weekly_ma20_bounce(weekly: pd.DataFrame, _daily: pd.DataFrame = None) 
     """
     週足20線反発: MA60上向き、前週安値がMA20付近、今週陽線でMA20より上。
     """
-    if len(weekly) < 62:
+    if len(weekly) < 10:
         return False
     cur = weekly.iloc[-1]
     prev = weekly.iloc[-2]
