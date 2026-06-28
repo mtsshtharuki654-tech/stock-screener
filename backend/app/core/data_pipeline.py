@@ -1,6 +1,7 @@
 from collections.abc import Callable
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from app.config import settings
@@ -12,9 +13,33 @@ DAILY_CACHE = settings.cache_dir / "daily_ohlcv.parquet"
 UNIVERSE_CACHE = settings.cache_dir / "universe.parquet"
 INDEX_CACHE_TPL = settings.cache_dir / "index_{code}.parquet"
 
+# 途中保存の間隔（日数）
+_SAVE_EVERY = 10
+
 
 def _today_jst() -> datetime:
     return datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _load_cache() -> pd.DataFrame:
+    """キャッシュを読み込む。空・破損の場合は削除して空DFを返す。"""
+    if not DAILY_CACHE.exists():
+        return pd.DataFrame()
+    try:
+        df = pd.read_parquet(DAILY_CACHE)
+        if df.empty or "Date" not in df.columns:
+            DAILY_CACHE.unlink(missing_ok=True)
+            return pd.DataFrame()
+        df["Date"] = pd.to_datetime(df["Date"])
+        return df
+    except Exception:
+        DAILY_CACHE.unlink(missing_ok=True)
+        return pd.DataFrame()
+
+
+def _save_cache(df: pd.DataFrame) -> None:
+    if not df.empty:
+        df.to_parquet(DAILY_CACHE)
 
 
 def load_universe(segments: list[str]) -> pd.DataFrame:
@@ -24,7 +49,6 @@ def load_universe(segments: list[str]) -> pd.DataFrame:
         mtime = datetime.fromtimestamp(UNIVERSE_CACHE.stat().st_mtime, tz=JST)
         if (now - mtime).total_seconds() < 86400:
             return pd.read_parquet(UNIVERSE_CACHE)
-
     df = jq.get_universe(segments)
     df.to_parquet(UNIVERSE_CACHE)
     return df
@@ -35,45 +59,71 @@ def load_daily_ohlcv(
     progress_cb: "Callable[[int, int], None] | None" = None,
 ) -> pd.DataFrame:
     """
-    Load daily OHLCV for all Prime+Growth stocks with parquet cache and incremental update.
+    日足OHLCVを取得。キャッシュがある場合は差分のみ取得。
+    1日ずつ取得して_SAVE_EVERY日ごとに保存するため途中中断しても再開可能。
     """
     end = _today_jst()
     start = end - timedelta(days=LOOKBACK_DAYS)
+    end_capped = jq._cap_end(end)
 
-    if DAILY_CACHE.exists():
-        cached = pd.read_parquet(DAILY_CACHE)
-        # 空・破損キャッシュを無視してフルフェッチへ
-        if cached.empty or "Date" not in cached.columns:
-            DAILY_CACHE.unlink(missing_ok=True)
-        else:
-            cached["Date"] = pd.to_datetime(cached["Date"])
-            last_date = cached["Date"].max()
-            delta_start = last_date + timedelta(days=1)
+    # キャッシュ読み込み
+    cached = _load_cache()
+    fetch_start = start
+    if not cached.empty:
+        last_date = cached["Date"].max()
+        fetch_start = last_date + timedelta(days=1)
 
-            if delta_start.date() >= end.date():
-                if progress_cb:
-                    progress_cb(1, 1)
-                return cached
+    # 取得する日付リスト
+    all_dates = list(pd.date_range(start, end_capped, freq="B"))
+    remaining = list(pd.date_range(fetch_start, end_capped, freq="B"))
 
-            delta = jq.get_daily_ohlcv(delta_start, end, progress_cb=progress_cb)
-            if not delta.empty:
-                merged = pd.concat([cached, delta]).drop_duplicates(subset=["Code", "Date"])
-                merged = merged.sort_values(["Code", "Date"]).reset_index(drop=True)
-                merged.to_parquet(DAILY_CACHE)
-                return merged
-            # デルタなし（取得範囲なし）
-            if progress_cb:
-                progress_cb(1, 1)
-            return cached
+    if not remaining:
+        if progress_cb:
+            progress_cb(len(all_dates), len(all_dates))
+        return cached
 
-    df = jq.get_daily_ohlcv(start, end, progress_cb=progress_cb)
-    if not df.empty:  # 空なら保存しない
-        df.to_parquet(DAILY_CACHE)
-    return df
+    total = len(all_dates)
+    already_done = total - len(remaining)
+
+    new_frames: list[pd.DataFrame] = []
+
+    for idx, date in enumerate(remaining):
+        date_str = date.strftime("%Y-%m-%d")
+        df = jq.fetch_date(date_str)
+        if not df.empty:
+            df["Date"] = pd.to_datetime(df["Date"])
+            new_frames.append(df)
+
+        if progress_cb:
+            progress_cb(already_done + idx + 1, total)
+
+        # _SAVE_EVERY日ごとに途中保存
+        if new_frames and (idx + 1) % _SAVE_EVERY == 0:
+            merged = _merge(cached, new_frames)
+            _save_cache(merged)
+
+        time.sleep(2.0)  # 429対策
+
+    if not new_frames:
+        # 新規データなし
+        if cached.empty:
+            return pd.DataFrame()
+        return cached
+
+    merged = _merge(cached, new_frames)
+    _save_cache(merged)
+    return merged
+
+
+def _merge(base: pd.DataFrame, new_frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """既存データと新規データをマージして重複除去・ソート。"""
+    parts = ([base] if not base.empty else []) + new_frames
+    result = pd.concat(parts).drop_duplicates(subset=["Code", "Date"])
+    result = result.sort_values(["Code", "Date"]).reset_index(drop=True)
+    return result
 
 
 def load_index_ohlcv(index_code: str) -> pd.DataFrame:
-    """Load index daily data with daily cache."""
     cache_path = Path(str(INDEX_CACHE_TPL).replace("{code}", index_code))
     end = _today_jst()
     start = end - timedelta(days=LOOKBACK_DAYS)
@@ -100,15 +150,11 @@ def load_index_ohlcv(index_code: str) -> pd.DataFrame:
 
 
 def resample_to_weekly(daily_df: pd.DataFrame) -> pd.DataFrame:
-    """Resample daily OHLCV to weekly (Friday close). Uses V2 column names."""
     df = daily_df.copy()
     df = df.set_index("Date")
     weekly = df.resample("W-FRI").agg({
-        "O": "first",
-        "H": "max",
-        "L": "min",
-        "AdjC": "last",
-        "AdjVo": "sum",
+        "O": "first", "H": "max", "L": "min",
+        "AdjC": "last", "AdjVo": "sum",
     }).dropna(subset=["AdjC"])
     weekly = weekly.rename(columns={
         "O": "Open", "H": "High", "L": "Low",
@@ -119,7 +165,6 @@ def resample_to_weekly(daily_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_ma_columns(df: pd.DataFrame, price_col: str = "Close") -> pd.DataFrame:
-    """Add MA5, MA20, MA60 and their slopes in-place."""
     df = df.copy()
     for p in [5, 20, 60]:
         col = f"MA{p}"
@@ -129,11 +174,6 @@ def add_ma_columns(df: pd.DataFrame, price_col: str = "Close") -> pd.DataFrame:
 
 
 def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Compute daily and weekly MAs for all codes in one vectorized pass.
-    Returns (daily_with_ma, weekly_with_ma).
-    """
-    # Use AdjC (V2 adjusted close) for all MA calculations
     daily = daily_all.sort_values(["Code", "Date"]).copy()
 
     for p in [5, 20, 60]:
@@ -144,14 +184,12 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             lambda x: x.pct_change()
         )
 
-    # Add standard column aliases so screener can use Open/High/Low/Close/Volume
     daily["Open"] = daily["O"]
     daily["High"] = daily["H"]
     daily["Low"] = daily["L"]
     daily["Close"] = daily["AdjC"]
     daily["Volume"] = daily["AdjVo"]
 
-    # Weekly resample per code
     weekly_frames = []
     for code, grp in daily.groupby("Code"):
         wk = resample_to_weekly(grp[["Date", "O", "H", "L", "AdjC", "AdjVo"]])
@@ -164,20 +202,17 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
 
 def filter_by_volume(weekly_all: pd.DataFrame, min_daily_volume: int, weeks: int = 4) -> set[str]:
-    """Return set of codes passing the average daily volume filter."""
     passing = set()
     for code, grp in weekly_all.groupby("Code"):
         if len(grp) < weeks:
             continue
-        avg_weekly = grp["Volume"].iloc[-weeks:].mean()
-        avg_daily = avg_weekly / 5
+        avg_daily = grp["Volume"].iloc[-weeks:].mean() / 5
         if avg_daily >= min_daily_volume:
             passing.add(code)
     return passing
 
 
 def filter_by_price(daily_all: pd.DataFrame, max_price: float) -> set[str]:
-    """Return set of codes where the most recent AdjC <= max_price."""
     latest = daily_all.sort_values("Date").groupby("Code")["AdjC"].last()
     return set(latest[latest <= max_price].index)
 
@@ -187,7 +222,6 @@ def build_stock_frames(
     weekly_all: pd.DataFrame,
     codes: set[str],
 ) -> dict[str, dict[str, pd.DataFrame]]:
-    """Return {code: {"daily": df, "weekly": df}} for the given codes."""
     result = {}
     for code in codes:
         d = daily_all[daily_all["Code"] == code].sort_values("Date").reset_index(drop=True)
