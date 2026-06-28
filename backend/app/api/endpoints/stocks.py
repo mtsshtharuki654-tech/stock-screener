@@ -38,7 +38,8 @@ async def get_chart(
 ) -> ChartData:
     # APIで取得を試み、失敗したときだけキャッシュにフォールバック
     end = datetime.now(JST)
-    start = end - timedelta(days=periods * 7 + 90)
+    # MA60週足の計算に必要な期間を確保するため固定lookbackを使用
+    start = end - timedelta(days=500)
     daily_df = jq.get_daily_ohlcv_single(code, start, end)
     if daily_df.empty:
         daily_df = _load_from_cache(code)

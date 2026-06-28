@@ -12,8 +12,8 @@ export default function DualChartLayout({ code }: Props) {
   const [weeklyTf] = useState<"weekly">("weekly");
   const [dailyTf] = useState<"daily">("daily");
 
-  const weekly = useChartData(code, weeklyTf);
-  const daily = useChartData(code, dailyTf);
+  const weekly = useChartData(code, weeklyTf, 26);  // 約6ヶ月（環境認識用）
+  const daily = useChartData(code, dailyTf, 65);    // 約3ヶ月（エントリー用）
 
   const isLoading = weekly.isLoading || daily.isLoading;
   const error = weekly.error || daily.error;
