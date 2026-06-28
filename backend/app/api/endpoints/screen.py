@@ -7,7 +7,7 @@ import pandas as pd
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
-from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot
+from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot, CorporateEvents
 from app.core import data_pipeline as dp, screener as sc
 from app.core.corporate_events import get_corporate_events
 from app.core.index_correlation import get_correlation_for_stock
@@ -138,10 +138,21 @@ async def run_screen(req: ScreenRequest):
         yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV + _WEIGHT_MA + _WEIGHT_SCREEN, f"コーポレート情報を取得中（{len(hits)} 銘柄）..."), ensure_ascii=False)}
 
         if hits:
-            events_results = await asyncio.gather(*[
-                get_corporate_events(hit.code, hit.segment, stock_frames[hit.code]["daily"])
-                for hit in hits
-            ])
+            sem = asyncio.Semaphore(8)
+
+            async def _bounded_events(hit: ScreenHit) -> CorporateEvents:
+                async with sem:
+                    try:
+                        return await asyncio.wait_for(
+                            get_corporate_events(
+                                hit.code, hit.segment, stock_frames[hit.code]["daily"]
+                            ),
+                            timeout=8.0,
+                        )
+                    except Exception:
+                        return CorporateEvents()
+
+            events_results = await asyncio.gather(*[_bounded_events(hit) for hit in hits])
             for hit, events in zip(hits, events_results):
                 hit.corporate_events = events
 

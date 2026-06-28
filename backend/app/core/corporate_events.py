@@ -51,7 +51,7 @@ async def get_earnings_schedule() -> pd.DataFrame:
     now = _now_jst()
     if _earnings_cache and (now - _earnings_cache[0]).total_seconds() < 86400:
         return _earnings_cache[1]
-    df = jq.get_earnings_announcements()
+    df = await asyncio.to_thread(jq.get_earnings_announcements)
     _earnings_cache = (now, df)
     return df
 
