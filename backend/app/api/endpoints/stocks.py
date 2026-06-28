@@ -36,12 +36,12 @@ async def get_chart(
     timeframe: str = Query("weekly", pattern="^(weekly|daily)$"),
     periods: int = Query(200, ge=20, le=500),
 ) -> ChartData:
-    # まずキャッシュから取得し、なければAPIにフォールバック
-    daily_df = _load_from_cache(code)
+    # APIで取得を試み、失敗したときだけキャッシュにフォールバック
+    end = datetime.now(JST)
+    start = end - timedelta(days=periods * 7 + 90)
+    daily_df = jq.get_daily_ohlcv_single(code, start, end)
     if daily_df.empty:
-        end = datetime.now(JST)
-        start = end - timedelta(days=periods * 7 + 90)
-        daily_df = jq.get_daily_ohlcv_single(code, start, end)
+        daily_df = _load_from_cache(code)
     if daily_df.empty:
         raise HTTPException(status_code=404, detail=f"No data found for {code}")
 
