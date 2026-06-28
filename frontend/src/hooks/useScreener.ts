@@ -3,6 +3,7 @@ import { streamScreen } from "../api/client";
 import type { ScreenRequest, ScreenResponse, ScreenHit } from "../types";
 
 const STORAGE_KEY = "screener_hits";
+const RESULT_STORAGE_KEY = "screener_result";
 
 export function getCachedHit(code: string): ScreenHit | null {
   try {
@@ -21,6 +22,21 @@ function cacheHits(hits: ScreenHit[]) {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(map));
 }
 
+function saveResult(res: ScreenResponse) {
+  try {
+    sessionStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(res));
+  } catch {}
+}
+
+function loadResult(): ScreenResponse | null {
+  try {
+    const raw = sessionStorage.getItem(RESULT_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as ScreenResponse) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ScreenerState {
   data: ScreenResponse | null;
   isPending: boolean;
@@ -32,15 +48,15 @@ export interface ScreenerState {
 }
 
 export function useScreener() {
-  const [state, setState] = useState<ScreenerState>({
-    data: null,
+  const [state, setState] = useState<ScreenerState>(() => ({
+    data: loadResult(),
     isPending: false,
     progress: "",
     pct: 0,
     elapsed: 0,
     eta: null,
     error: null,
-  });
+  }));
   const cancelRef = useRef<(() => void) | null>(null);
 
   const mutate = useCallback((req: ScreenRequest) => {
@@ -52,6 +68,7 @@ export function useScreener() {
       (msg, pct, elapsed, eta) => setState((s) => ({ ...s, progress: msg, pct, elapsed, eta })),
       (res) => {
         cacheHits(res.hits);
+        saveResult(res);
         setState({ data: res, isPending: false, progress: "", pct: 100, elapsed: 0, eta: null, error: null });
       },
       (msg) => setState({ data: null, isPending: false, progress: "", pct: 0, elapsed: 0, eta: null, error: new Error(msg) }),

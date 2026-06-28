@@ -5,7 +5,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core import jquants_client as jq
-from app.core.data_pipeline import add_ma_columns, resample_to_weekly
+from app.core.data_pipeline import add_ma_columns, resample_to_weekly, DAILY_CACHE
 from app.models.stock import ChartData, OHLCV, MASet, MAPoint
 
 router = APIRouter()
@@ -18,17 +18,30 @@ def _to_unix(dt) -> int:
     return int(datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc).timestamp())
 
 
+def _load_from_cache(code: str) -> pd.DataFrame:
+    """全銘柄キャッシュから1銘柄分を取り出す。キャッシュがなければ空DFを返す。"""
+    if not DAILY_CACHE.exists():
+        return pd.DataFrame()
+    try:
+        df = pd.read_parquet(DAILY_CACHE, filters=[("Code", "==", code)])
+        df["Date"] = pd.to_datetime(df["Date"])
+        return df.sort_values("Date").reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
 @router.get("/stocks/{code}/chart", response_model=ChartData)
 async def get_chart(
     code: str,
     timeframe: str = Query("weekly", pattern="^(weekly|daily)$"),
     periods: int = Query(200, ge=20, le=500),
 ) -> ChartData:
-    end = datetime.now(JST)
-    start = end - timedelta(days=periods * 7 + 90)  # バッファ込み
-
-    # 単一銘柄の日足データを取得
-    daily_df = jq.get_daily_ohlcv_single(code, start, end)
+    # まずキャッシュから取得し、なければAPIにフォールバック
+    daily_df = _load_from_cache(code)
+    if daily_df.empty:
+        end = datetime.now(JST)
+        start = end - timedelta(days=periods * 7 + 90)
+        daily_df = jq.get_daily_ohlcv_single(code, start, end)
     if daily_df.empty:
         raise HTTPException(status_code=404, detail=f"No data found for {code}")
 
