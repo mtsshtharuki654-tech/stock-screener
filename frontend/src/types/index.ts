@@ -76,31 +76,14 @@ export interface MASnapshot {
   ma60: number;
 }
 
-export interface EarningsEvent {
-  next_date: string | null;
-  days_until: number | null;
-  is_near: boolean;
-}
-
-export interface TdnetEvent {
-  detected: boolean;
-  date: string | null;
-  tdnet_url: string | null;
-  title: string | null;
-}
-
 export interface CorporateEvents {
-  earnings: EarningsEvent;
-  split: { recent: boolean; date: string | null; ratio: string | null };
-  warrant: TdnetEvent;
-  secondary_offer: TdnetEvent;
-  earnings_revision_up: TdnetEvent;
-  earnings_revision_down: TdnetEvent;
-  margin_restriction: boolean;
-  under_supervision: boolean;
-  buyback: TdnetEvent;
-  tob: TdnetEvent;
-  large_holder: TdnetEvent;
+  earnings_near: boolean;
+  earnings_days_until: number | null;
+  earnings_revision_up: boolean;
+  earnings_revision_down: boolean;
+  warrant: boolean;
+  secondary_offer: boolean;
+  buyback: boolean;
 }
 
 export interface IndexCorrelation {

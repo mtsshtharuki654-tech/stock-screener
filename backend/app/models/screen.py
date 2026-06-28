@@ -38,37 +38,14 @@ class MASnapshot(BaseModel):
     ma60: float
 
 
-class EarningsEvent(BaseModel):
-    next_date: Optional[str] = None
-    days_until: Optional[int] = None
-    is_near: bool = False
-
-
-class SplitEvent(BaseModel):
-    recent: bool = False
-    date: Optional[str] = None
-    ratio: Optional[str] = None
-
-
-class TdnetEvent(BaseModel):
-    detected: bool = False
-    date: Optional[str] = None
-    tdnet_url: Optional[str] = None
-    title: Optional[str] = None
-
-
 class CorporateEvents(BaseModel):
-    earnings: EarningsEvent = Field(default_factory=EarningsEvent)
-    split: SplitEvent = Field(default_factory=SplitEvent)
-    warrant: TdnetEvent = Field(default_factory=TdnetEvent)
-    secondary_offer: TdnetEvent = Field(default_factory=TdnetEvent)
-    earnings_revision_up: TdnetEvent = Field(default_factory=TdnetEvent)
-    earnings_revision_down: TdnetEvent = Field(default_factory=TdnetEvent)
-    margin_restriction: bool = False
-    under_supervision: bool = False
-    buyback: TdnetEvent = Field(default_factory=TdnetEvent)
-    tob: TdnetEvent = Field(default_factory=TdnetEvent)
-    large_holder: TdnetEvent = Field(default_factory=TdnetEvent)
+    earnings_near: bool = False
+    earnings_days_until: Optional[int] = None
+    earnings_revision_up: bool = False   # 業績上方修正
+    earnings_revision_down: bool = False # 業績下方修正
+    warrant: bool = False                # 新株予約権（希薄化）
+    secondary_offer: bool = False        # 公募増資（希薄化）
+    buyback: bool = False                # 自社株買い
 
 
 class IndexCorrelation(BaseModel):

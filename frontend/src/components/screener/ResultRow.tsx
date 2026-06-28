@@ -8,32 +8,25 @@ interface Props {
 }
 
 function EventBadges({ events }: { events: ScreenHit["corporate_events"] }) {
-  const badges: { label: string; color: string; priority: number }[] = [];
+  const badges: { label: string; color: string }[] = [];
 
-  if (events.under_supervision)
-    badges.push({ label: "監理銘柄", color: "bg-red-800 text-red-100", priority: 0 });
-  if (events.warrant.detected)
-    badges.push({ label: "ワラント", color: "bg-red-700 text-red-100", priority: 1 });
-  if (events.secondary_offer.detected)
-    badges.push({ label: "公募増資", color: "bg-red-700 text-red-100", priority: 1 });
-  if (events.margin_restriction)
-    badges.push({ label: "信用規制", color: "bg-red-700 text-red-100", priority: 1 });
-  if (events.earnings_revision_down.detected)
-    badges.push({ label: "業績下方", color: "bg-red-600 text-red-100", priority: 2 });
-  if (events.tob.detected)
-    badges.push({ label: "TOB", color: "bg-yellow-700 text-yellow-100", priority: 3 });
-  if (events.earnings.is_near && events.earnings.days_until != null)
-    badges.push({ label: `決算${events.earnings.days_until}日後`, color: "bg-yellow-600 text-yellow-100", priority: 3 });
-  if (events.large_holder.detected)
-    badges.push({ label: "大量保有", color: "bg-blue-700 text-blue-100", priority: 4 });
-  if (events.split.recent)
-    badges.push({ label: "株分割済", color: "bg-blue-600 text-blue-100", priority: 5 });
-  if (events.buyback.detected)
-    badges.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100", priority: 6 });
-  if (events.earnings_revision_up.detected)
-    badges.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100", priority: 6 });
+  // 下落リスク（赤）
+  if (events.warrant)
+    badges.push({ label: "ワラント", color: "bg-red-700 text-red-100" });
+  if (events.secondary_offer)
+    badges.push({ label: "公募増資", color: "bg-red-700 text-red-100" });
+  if (events.earnings_revision_down)
+    badges.push({ label: "業績下方", color: "bg-red-600 text-red-100" });
 
-  badges.sort((a, b) => a.priority - b.priority);
+  // 注意（黄）
+  if (events.earnings_near && events.earnings_days_until != null)
+    badges.push({ label: `決算${events.earnings_days_until}日後`, color: "bg-yellow-600 text-yellow-100" });
+
+  // 上昇サポート（緑）
+  if (events.buyback)
+    badges.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100" });
+  if (events.earnings_revision_up)
+    badges.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100" });
 
   return (
     <div className="flex flex-wrap gap-1">
