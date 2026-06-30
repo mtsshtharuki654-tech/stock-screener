@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import type { ConditionStat, ScreenHit } from "../types";
 import clsx from "clsx";
@@ -23,13 +23,21 @@ function CorrInfo({ corr }: { corr: IndexCorrelation | null }) {
   );
 }
 
+function earningsBadgeColor(days: number): string {
+  if (days <= 7)  return "bg-red-700 text-red-100";
+  if (days <= 30) return "bg-orange-700 text-orange-100";
+  if (days <= 60) return "bg-yellow-700 text-yellow-100";
+  return "bg-gray-700 text-gray-300";
+}
+
 function AlertBadges({ events }: { events?: CorporateEvents }) {
   if (!events) return null;
   const items: { label: string; color: string }[] = [];
   if (events.warrant) items.push({ label: "ワラント", color: "bg-red-700 text-red-100" });
   if (events.secondary_offer) items.push({ label: "公募増資", color: "bg-red-700 text-red-100" });
   if (events.earnings_revision_down) items.push({ label: "業績下方", color: "bg-red-600 text-red-100" });
-  if (events.earnings_near) items.push({ label: `決算${events.earnings_days_until}日後`, color: "bg-yellow-600 text-yellow-100" });
+  if (events.earnings_days_until != null)
+    items.push({ label: `決算${events.earnings_days_until}日後`, color: earningsBadgeColor(events.earnings_days_until) });
   if (events.buyback) items.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100" });
   if (events.earnings_revision_up) items.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100" });
   if (items.length === 0) return null;
@@ -59,35 +67,23 @@ export default function StockDetailPage() {
   const { data: weeklyData } = useChartData(code ?? null, "weekly", 52);
 
   const [events, setEvents] = useState<CorporateEvents | null>(null);
-  const [eventsLoading, setEventsLoading] = useState(false);
-  const [eventsError, setEventsError] = useState(false);
-  const [eventsFetched, setEventsFetched] = useState(false);
 
-  const handleFetchEvents = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  // マウント時に自動取得
+  useEffect(() => {
     if (!code) return;
-    setEventsLoading(true);
-    setEventsError(false);
-    try {
-      const data = await fetchEvents(code);
-      setEvents(data);
-      setEventsFetched(true);
-    } catch {
-      setEventsError(true);
-    } finally {
-      setEventsLoading(false);
-    }
-  };
+    fetchEvents(code).then(setEvents).catch(() => {});
+  }, [code]);
 
   if (!code) return null;
 
   const conditionStats: Record<string, ConditionStat> | null =
     getCachedScreenResult()?.lookup_stats ?? null;
 
-  const hasAnyAlert = events
-    ? events.warrant || events.secondary_offer || events.earnings_near ||
-      events.earnings_revision_up || events.earnings_revision_down || events.buyback
-    : false;
+  const hasAnyAlert = events != null && (
+    events.warrant || events.secondary_offer || events.earnings_near ||
+    events.earnings_revision_up || events.earnings_revision_down || events.buyback ||
+    events.earnings_days_until != null
+  );
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-950">
@@ -131,31 +127,16 @@ export default function StockDetailPage() {
               );
             })}
 
-            {/* 注意情報 */}
-            {eventsFetched ? (
-              hasAnyAlert ? (
-                <>
-                  {hit?.conditions_matched.length ? <span className="text-gray-700 text-xs">|</span> : null}
-                  <AlertBadges events={events!} />
-                </>
-              ) : (
-                <span className="text-xs text-gray-500">注意情報なし</span>
-              )
+            {/* 注意情報（自動表示） */}
+            {events == null ? (
+              <span className="text-xs text-gray-600">取得中…</span>
+            ) : hasAnyAlert ? (
+              <>
+                {hit?.conditions_matched.length ? <span className="text-gray-700 text-xs">|</span> : null}
+                <AlertBadges events={events} />
+              </>
             ) : (
-              <button
-                onClick={handleFetchEvents}
-                disabled={eventsLoading}
-                className={clsx(
-                  "text-xs px-2 py-0.5 rounded border transition-colors",
-                  eventsLoading
-                    ? "border-gray-600 text-gray-500 cursor-not-allowed"
-                    : eventsError
-                    ? "border-red-700 text-red-400 hover:bg-red-900"
-                    : "border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200"
-                )}
-              >
-                {eventsLoading ? "調査中…" : eventsError ? "再試行" : "注意情報を調べる"}
-              </button>
+              <span className="text-xs text-gray-500">注意情報なし</span>
             )}
 
             {/* 指数連動性 */}

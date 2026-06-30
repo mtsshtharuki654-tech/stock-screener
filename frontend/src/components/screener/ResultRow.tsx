@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import type { ConditionStat, CorporateEvents, ScreenHit } from "../../types";
 import { CONDITION_LABELS, LONG_CONDITIONS, SHORT_CONDITIONS } from "../../types";
@@ -10,6 +10,13 @@ interface Props {
   conditionStats?: Record<string, ConditionStat>;
 }
 
+function earningsBadgeColor(days: number): string {
+  if (days <= 7)  return "bg-red-700 text-red-100";
+  if (days <= 30) return "bg-orange-700 text-orange-100";
+  if (days <= 60) return "bg-yellow-700 text-yellow-100";
+  return "bg-gray-700 text-gray-300";
+}
+
 function EventBadges({ events }: { events: CorporateEvents }) {
   const badges: { label: string; color: string }[] = [];
   if (events.warrant)
@@ -18,14 +25,16 @@ function EventBadges({ events }: { events: CorporateEvents }) {
     badges.push({ label: "公募増資", color: "bg-red-700 text-red-100" });
   if (events.earnings_revision_down)
     badges.push({ label: "業績下方", color: "bg-red-600 text-red-100" });
-  if (events.earnings_near && events.earnings_days_until != null)
-    badges.push({ label: `決算${events.earnings_days_until}日後`, color: "bg-yellow-600 text-yellow-100" });
+  if (events.earnings_days_until != null)
+    badges.push({ label: `決算${events.earnings_days_until}日後`, color: earningsBadgeColor(events.earnings_days_until) });
   if (events.buyback)
     badges.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100" });
   if (events.earnings_revision_up)
     badges.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100" });
+
   if (badges.length === 0)
-    return <span className="text-xs text-gray-600">なし</span>;
+    return <span className="text-xs text-gray-600">—</span>;
+
   return (
     <div className="flex flex-wrap gap-1">
       {badges.map((b) => (
@@ -60,21 +69,14 @@ function avgRate(keys: string[], stats: Record<string, ConditionStat> | undefine
   return rates.reduce((a, b) => a + b, 0) / rates.length;
 }
 
-function WinrateCell({
-  hit,
-  conditionStats,
-}: {
-  hit: ScreenHit;
-  conditionStats?: Record<string, ConditionStat>;
-}) {
-  const longKeys = hit.conditions_matched.filter((k) => LONG_CONDITIONS.includes(k as any));
+function WinrateCell({ hit, conditionStats }: { hit: ScreenHit; conditionStats?: Record<string, ConditionStat> }) {
+  const longKeys  = hit.conditions_matched.filter((k) => LONG_CONDITIONS.includes(k as any));
   const shortKeys = hit.conditions_matched.filter((k) => SHORT_CONDITIONS.includes(k as any));
-  const longRate = avgRate(longKeys, conditionStats);
+  const longRate  = avgRate(longKeys, conditionStats);
   const shortRate = avgRate(shortKeys, conditionStats);
 
-  if (longRate == null && shortRate == null) {
+  if (longRate == null && shortRate == null)
     return <span className="text-xs text-gray-600">—</span>;
-  }
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -96,22 +98,15 @@ function WinrateCell({
 
 export default function ResultRow({ hit, onClick, conditionStats }: Props) {
   const [events, setEvents] = useState<CorporateEvents | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
 
-  const handleFetch = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setLoading(true);
-    setError(false);
-    try {
-      const data = await fetchEvents(hit.code);
-      setEvents(data);
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // マウント時に自動取得
+  useEffect(() => {
+    let cancelled = false;
+    fetchEvents(hit.code)
+      .then((data) => { if (!cancelled) setEvents(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [hit.code]);
 
   const isLong  = hit.signal_type === "long"  || hit.signal_type === "mixed";
   const isShort = hit.signal_type === "short" || hit.signal_type === "mixed";
@@ -158,12 +153,12 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
         </div>
       </td>
 
-      {/* 翌週確率（専用列） */}
+      {/* 翌週確率 */}
       <td className="px-3 py-2">
         <WinrateCell hit={hit} conditionStats={conditionStats} />
       </td>
 
-      {/* ヒット条件（確率%付き） */}
+      {/* ヒット条件 */}
       <td className="px-3 py-2">
         <div className="flex flex-wrap gap-1">
           {hit.conditions_matched.map((key) => {
@@ -190,26 +185,12 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
         </div>
       </td>
 
-      {/* 注意情報（オンデマンド） */}
-      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-        {events ? (
-          <EventBadges events={events} />
-        ) : (
-          <button
-            onClick={handleFetch}
-            disabled={loading}
-            className={clsx(
-              "text-xs px-2 py-0.5 rounded border transition-colors",
-              loading
-                ? "border-gray-600 text-gray-500 cursor-not-allowed"
-                : error
-                ? "border-red-700 text-red-400 hover:bg-red-900"
-                : "border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200"
-            )}
-          >
-            {loading ? "取得中…" : error ? "再試行" : "調べる"}
-          </button>
-        )}
+      {/* 注意情報（自動表示） */}
+      <td className="px-3 py-2">
+        {events
+          ? <EventBadges events={events} />
+          : <span className="text-xs text-gray-700">取得中…</span>
+        }
       </td>
 
       {/* 指数連動性 */}
