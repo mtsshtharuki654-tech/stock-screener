@@ -73,32 +73,14 @@ def load_daily_ohlcv(
     progress_cb: "Callable[[int, int], None] | None" = None,
 ) -> pd.DataFrame:
     """
-    日足OHLCVをyfinanceで取得。キャッシュが当日のものなら再取得しない。
+    日足OHLCVをキャッシュから返す。
+    チャート表示はyfinance（stocks.py）で個別取得するため、
+    スクリーナー用はキャッシュデータを使用する。
     """
-    end = _today_jst()
-    start = end - timedelta(days=LOOKBACK_DAYS)
-
-    # キャッシュが今日のものであれば再取得しない
     cached = _load_cache()
-    if not cached.empty:
-        last_date = _naive(pd.Timestamp(cached["Date"].max()).to_pydatetime())
-        today_naive = _naive(end)
-        if (today_naive - last_date).days <= 1:
-            if progress_cb:
-                progress_cb(1, 1)
-            return cached
-
-    # ユニバースからコード一覧を取得
-    universe_df = load_universe(segments)
-    codes = universe_df["Code"].astype(str).tolist()
-
-    fresh = yfc.fetch_batch(codes, start, end, progress_cb=progress_cb, batch_size=50)
-
-    if fresh.empty:
-        return cached if not cached.empty else pd.DataFrame()
-
-    _save_cache(fresh)
-    return fresh
+    if progress_cb:
+        progress_cb(1, 1)
+    return cached
 
 
 def _merge(base: pd.DataFrame, new_frames: list[pd.DataFrame]) -> pd.DataFrame:
