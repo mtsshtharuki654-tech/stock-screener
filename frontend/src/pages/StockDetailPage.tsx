@@ -127,13 +127,39 @@ export default function StockDetailPage() {
     <div className="flex flex-col h-screen overflow-hidden bg-gray-950">
       <header className="flex items-start gap-2 px-3 py-2 bg-gray-900 border-b border-gray-800 flex-shrink-0">
 
-        {/* 戻る */}
-        <button
-          onClick={() => navigate(-1)}
-          className="text-gray-400 hover:text-white text-sm mt-0.5 flex-shrink-0 px-1"
-        >
-          ←
-        </button>
+        {/* 前後ナビゲーション（左） */}
+        {allHits.length > 1 && (
+          <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+            <button
+              onClick={() => prevHit && goTo(prevHit)}
+              disabled={!prevHit}
+              title={prevHit ? `← ${prevHit.code} ${prevHit.name}` : ""}
+              className={clsx(
+                "flex flex-col items-center px-2.5 py-1 rounded text-xs transition-colors border",
+                prevHit
+                  ? "border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-400"
+                  : "border-gray-800 text-gray-700 cursor-not-allowed"
+              )}
+            >
+              <span className="text-base leading-none">‹</span>
+              {prevHit && <span className="text-gray-500 text-[10px] leading-tight">{prevHit.code}</span>}
+            </button>
+            <button
+              onClick={() => nextHit && goTo(nextHit)}
+              disabled={!nextHit}
+              title={nextHit ? `${nextHit.code} ${nextHit.name} →` : ""}
+              className={clsx(
+                "flex flex-col items-center px-2.5 py-1 rounded text-xs transition-colors border",
+                nextHit
+                  ? "border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-400"
+                  : "border-gray-800 text-gray-700 cursor-not-allowed"
+              )}
+            >
+              <span className="text-base leading-none">›</span>
+              {nextHit && <span className="text-gray-500 text-[10px] leading-tight">{nextHit.code}</span>}
+            </button>
+          </div>
+        )}
 
         {/* 銘柄情報 */}
         <div className="flex-1 min-w-0">
@@ -220,39 +246,13 @@ export default function StockDetailPage() {
           </div>
         </div>
 
-        {/* 前後ナビゲーション */}
-        {allHits.length > 1 && (
-          <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
-            <button
-              onClick={() => prevHit && goTo(prevHit)}
-              disabled={!prevHit}
-              title={prevHit ? `← ${prevHit.code} ${prevHit.name}` : ""}
-              className={clsx(
-                "flex flex-col items-center px-2.5 py-1 rounded text-xs transition-colors border",
-                prevHit
-                  ? "border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-400"
-                  : "border-gray-800 text-gray-700 cursor-not-allowed"
-              )}
-            >
-              <span className="text-base leading-none">‹</span>
-              {prevHit && <span className="text-gray-500 text-[10px] leading-tight">{prevHit.code}</span>}
-            </button>
-            <button
-              onClick={() => nextHit && goTo(nextHit)}
-              disabled={!nextHit}
-              title={nextHit ? `${nextHit.code} ${nextHit.name} →` : ""}
-              className={clsx(
-                "flex flex-col items-center px-2.5 py-1 rounded text-xs transition-colors border",
-                nextHit
-                  ? "border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-400"
-                  : "border-gray-800 text-gray-700 cursor-not-allowed"
-              )}
-            >
-              <span className="text-base leading-none">›</span>
-              {nextHit && <span className="text-gray-500 text-[10px] leading-tight">{nextHit.code}</span>}
-            </button>
-          </div>
-        )}
+        {/* 一覧へ戻る（右） */}
+        <button
+          onClick={() => navigate("/")}
+          className="text-gray-400 hover:text-white text-xs mt-0.5 flex-shrink-0 px-2 py-1 rounded border border-gray-700 hover:border-gray-400 transition-colors"
+        >
+          ← 一覧
+        </button>
       </header>
 
       <div className="flex-1 overflow-hidden">
