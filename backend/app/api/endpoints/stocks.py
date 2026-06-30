@@ -1,11 +1,11 @@
-import calendar
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
-from app.core import jquants_client as jq
-from app.core.data_pipeline import add_ma_columns, resample_to_weekly, DAILY_CACHE
+from app.core import yfinance_client as yfc
+from app.core.data_pipeline import add_ma_columns, resample_to_weekly, DAILY_CACHE, UNIVERSE_CACHE
 from app.models.stock import ChartData, OHLCV, MASet, MAPoint
 
 router = APIRouter()
@@ -36,11 +36,10 @@ async def get_chart(
     timeframe: str = Query("weekly", pattern="^(weekly|daily)$"),
     periods: int = Query(200, ge=20, le=500),
 ) -> ChartData:
-    # APIで取得を試み、失敗したときだけキャッシュにフォールバック
+    # yfinanceで最新データ取得（MA60週足計算に500日分確保）
     end = datetime.now(JST)
-    # MA60週足の計算に必要な期間を確保するため固定lookbackを使用
     start = end - timedelta(days=500)
-    daily_df = jq.get_daily_ohlcv_single(code, start, end)
+    daily_df = await asyncio.to_thread(yfc.fetch_single, code, start, end)
     if daily_df.empty:
         daily_df = _load_from_cache(code)
     if daily_df.empty:
@@ -87,9 +86,9 @@ async def get_chart(
             if col in df.columns and not pd.isna(row[col])
         ]
 
-    # 銘柄名を取得（ユニバースから）
+    # 銘柄名をキャッシュ済みユニバースから取得
     try:
-        universe = jq.get_universe(["Prime", "Growth"])
+        universe = pd.read_parquet(UNIVERSE_CACHE)
         name_row = universe[universe["Code"].astype(str) == code]
         name = str(name_row["CoName"].iloc[0]) if not name_row.empty else code
     except Exception:

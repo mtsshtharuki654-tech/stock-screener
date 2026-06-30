@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
 import time
@@ -6,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from app.config import settings
 from app.core import jquants_client as jq
+from app.core import yfinance_client as yfc
 
 JST = timezone(timedelta(hours=9))
 LOOKBACK_DAYS = 450  # 60週MA計算に必要な期間 + バッファ
@@ -15,6 +17,8 @@ INDEX_CACHE_TPL = settings.cache_dir / "index_{code}.parquet"
 
 # 途中保存の間隔（日数）
 _SAVE_EVERY = 10
+# 並列バッチ取得サイズ
+_BATCH_SIZE = 3
 
 
 def _today_jst() -> datetime:
@@ -43,11 +47,11 @@ def _save_cache(df: pd.DataFrame) -> None:
 
 
 def load_universe(segments: list[str]) -> pd.DataFrame:
-    """Load equity master with caching (24h TTL)."""
+    """Load equity master with caching (7d TTL)."""
     now = _today_jst()
     if UNIVERSE_CACHE.exists():
         mtime = datetime.fromtimestamp(UNIVERSE_CACHE.stat().st_mtime, tz=JST)
-        if (now - mtime).total_seconds() < 86400:
+        if (now - mtime).total_seconds() < 604800:  # 7 days
             return pd.read_parquet(UNIVERSE_CACHE)
     df = jq.get_universe(segments)
     df.to_parquet(UNIVERSE_CACHE)
@@ -64,64 +68,32 @@ def load_daily_ohlcv(
     progress_cb: "Callable[[int, int], None] | None" = None,
 ) -> pd.DataFrame:
     """
-    日足OHLCVを取得。キャッシュがある場合は差分のみ取得。
-    1日ずつ取得して_SAVE_EVERY日ごとに保存するため途中中断しても再開可能。
+    日足OHLCVをyfinanceで取得。キャッシュが当日のものなら再取得しない。
     """
     end = _today_jst()
     start = end - timedelta(days=LOOKBACK_DAYS)
-    end_capped = jq._cap_end(end)
 
-    # pd.date_range はnaiveで統一
-    start_naive     = _naive(start)
-    end_capped_naive = _naive(end_capped)
-
-    # キャッシュ読み込み
+    # キャッシュが今日のものであれば再取得しない
     cached = _load_cache()
-    fetch_start_naive = start_naive
     if not cached.empty:
-        last_date = pd.Timestamp(cached["Date"].max()).to_pydatetime()
-        fetch_start_naive = _naive(last_date) + timedelta(days=1)
+        last_date = _naive(pd.Timestamp(cached["Date"].max()).to_pydatetime())
+        today_naive = _naive(end)
+        if (today_naive - last_date).days <= 1:
+            if progress_cb:
+                progress_cb(1, 1)
+            return cached
 
-    # 取得する日付リスト
-    all_dates = list(pd.date_range(start_naive, end_capped_naive, freq="B"))
-    remaining = list(pd.date_range(fetch_start_naive, end_capped_naive, freq="B"))
+    # ユニバースからコード一覧を取得
+    universe_df = load_universe(segments)
+    codes = universe_df["Code"].astype(str).tolist()
 
-    if not remaining:
-        if progress_cb:
-            progress_cb(len(all_dates), len(all_dates))
-        return cached
+    fresh = yfc.fetch_batch(codes, start, end, progress_cb=progress_cb, batch_size=50)
 
-    total = len(all_dates)
-    already_done = total - len(remaining)
+    if fresh.empty:
+        return cached if not cached.empty else pd.DataFrame()
 
-    new_frames: list[pd.DataFrame] = []
-
-    for idx, date in enumerate(remaining):
-        date_str = date.strftime("%Y-%m-%d")
-        df = jq.fetch_date(date_str)
-        if not df.empty:
-            df["Date"] = pd.to_datetime(df["Date"])
-            new_frames.append(df)
-
-        if progress_cb:
-            progress_cb(already_done + idx + 1, total)
-
-        # _SAVE_EVERY日ごとに途中保存
-        if new_frames and (idx + 1) % _SAVE_EVERY == 0:
-            merged = _merge(cached, new_frames)
-            _save_cache(merged)
-
-        time.sleep(2.0)  # 429対策
-
-    if not new_frames:
-        # 新規データなし
-        if cached.empty:
-            return pd.DataFrame()
-        return cached
-
-    merged = _merge(cached, new_frames)
-    _save_cache(merged)
-    return merged
+    _save_cache(fresh)
+    return fresh
 
 
 def _merge(base: pd.DataFrame, new_frames: list[pd.DataFrame]) -> pd.DataFrame:

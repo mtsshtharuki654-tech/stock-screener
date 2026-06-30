@@ -4,6 +4,7 @@ import math
 import time
 from datetime import datetime, timezone, timedelta
 
+import anyio
 import pandas as pd
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
@@ -73,7 +74,9 @@ async def run_screen(req: ScreenRequest):
         # ---- ステップ1: 銘柄マスター ----
         yield {"data": json.dumps(_make_progress(t0, 0, "銘柄マスターを取得中..."), ensure_ascii=False)}
         try:
-            universe_df = await asyncio.to_thread(dp.load_universe, req.segments)
+            universe_df = await anyio.to_thread.run_sync(
+                lambda: dp.load_universe(req.segments), abandon_on_cancel=True
+            )
         except Exception as e:
             yield {"data": json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False)}
             return
@@ -87,28 +90,48 @@ async def run_screen(req: ScreenRequest):
             payload = _make_progress(t0, pct, f"日足データを取得中...（{done}/{total} バッチ）")
             loop.call_soon_threadsafe(queue.put_nowait, payload)
 
-        fetch_task = asyncio.create_task(
-            asyncio.to_thread(dp.load_daily_ohlcv, req.segments, on_ohlcv_progress)
-        )
+        async def _fetch_ohlcv():
+            return await anyio.to_thread.run_sync(
+                lambda: dp.load_daily_ohlcv(req.segments, on_ohlcv_progress),
+                abandon_on_cancel=True,
+            )
 
-        while not fetch_task.done():
-            try:
-                payload = await asyncio.wait_for(queue.get(), timeout=2.0)
-                yield {"data": json.dumps(payload, ensure_ascii=False)}
-            except asyncio.TimeoutError:
-                pass
+        async with anyio.create_task_group() as tg:
+            fetch_result: list = []
+
+            async def _run_fetch():
+                try:
+                    fetch_result.append(await _fetch_ohlcv())
+                except Exception as exc:
+                    fetch_result.append(exc)
+                finally:
+                    tg.cancel_scope.cancel()
+
+            tg.start_soon(_run_fetch)
+
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=2.0)
+                    yield {"data": json.dumps(payload, ensure_ascii=False)}
+                except asyncio.TimeoutError:
+                    if fetch_result:
+                        break
 
         # 残りのキューを全部流す
         while not queue.empty():
             yield {"data": json.dumps(queue.get_nowait(), ensure_ascii=False)}
 
-        try:
-            daily_all = fetch_task.result()
-        except Exception as e:
-            msg = str(e)
+        if not fetch_result:
+            yield {"data": json.dumps({"type": "error", "message": "日足データ取得が完了しませんでした。"}, ensure_ascii=False)}
+            return
+
+        daily_all_or_exc = fetch_result[0]
+        if isinstance(daily_all_or_exc, Exception):
+            msg = str(daily_all_or_exc)
             detail = "J-Quants APIのレート制限です。少し待ってから再試行してください。" if "429" in msg else msg
             yield {"data": json.dumps({"type": "error", "message": detail}, ensure_ascii=False)}
             return
+        daily_all = daily_all_or_exc
 
         if daily_all.empty or "Date" not in daily_all.columns:
             yield {"data": json.dumps({"type": "error", "message": "日足データが取得できませんでした。J-Quants APIのレート制限または契約期間を確認してください。"}, ensure_ascii=False)}
@@ -116,7 +139,9 @@ async def run_screen(req: ScreenRequest):
 
         # ---- ステップ3: MA計算 ----
         yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV, "移動平均を計算中..."), ensure_ascii=False)}
-        daily_ma, weekly_ma = await asyncio.to_thread(dp.compute_all_mas, daily_all)
+        daily_ma, weekly_ma = await anyio.to_thread.run_sync(
+            lambda: dp.compute_all_mas(daily_all), abandon_on_cancel=True
+        )
 
         price_pass = dp.filter_by_price(daily_ma, req.max_price)
         volume_pass = dp.filter_by_volume(weekly_ma, req.min_volume)
@@ -130,15 +155,18 @@ async def run_screen(req: ScreenRequest):
         # 指数データを事前に非同期取得（タイムアウト付き）。スレッド内でのAPI呼び出しを防ぐ。
         async def _load_index_safe(code: str) -> pd.DataFrame:
             try:
-                return await asyncio.wait_for(
-                    asyncio.to_thread(dp.load_index_ohlcv, code), timeout=10.0
+                return await anyio.to_thread.run_sync(
+                    lambda: dp.load_index_ohlcv(code), abandon_on_cancel=True
                 )
             except Exception:
                 return pd.DataFrame()
 
         index_cache: dict[str, pd.DataFrame] = {}
         for _idx_code in ("topix", "0049"):
-            index_cache[_idx_code] = await _load_index_safe(_idx_code)
+            with anyio.move_on_after(10.0):
+                index_cache[_idx_code] = await _load_index_safe(_idx_code)
+            if _idx_code not in index_cache:
+                index_cache[_idx_code] = pd.DataFrame()
 
         screen_queue: asyncio.Queue = asyncio.Queue()
         total_stocks = len(stock_frames)
@@ -180,7 +208,9 @@ async def run_screen(req: ScreenRequest):
 
             return result
 
-        screen_task = asyncio.create_task(asyncio.to_thread(_run_screening))
+        screen_task = asyncio.create_task(
+            anyio.to_thread.run_sync(_run_screening, abandon_on_cancel=True)
+        )
 
         while not screen_task.done():
             try:

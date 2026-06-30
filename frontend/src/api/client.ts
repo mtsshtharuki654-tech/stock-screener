@@ -3,6 +3,10 @@ import type { ScreenRequest, ScreenResponse, ChartData, CorporateEvents } from "
 
 const api = axios.create({ baseURL: "/api", timeout: 30_000 });
 
+// Viteプロキシ経由だとSSEが1イベント後にブロックされるため、
+// 開発環境ではバックエンドに直接接続する。
+const SSE_BASE = import.meta.env.VITE_API_URL ?? "";
+
 export function streamScreen(
   req: ScreenRequest,
   onProgress: (msg: string, pct: number, elapsed: number, eta: number | null) => void,
@@ -11,7 +15,7 @@ export function streamScreen(
 ): () => void {
   const ctrl = new AbortController();
 
-  fetch("/api/screen", {
+  fetch(`${SSE_BASE}/api/screen`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(req),
