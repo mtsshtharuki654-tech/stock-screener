@@ -5,6 +5,7 @@ import DualChartLayout from "../components/chart/DualChartLayout";
 import { useChartData } from "../hooks/useChartData";
 import { getCachedHit } from "../hooks/useScreener";
 import type { IndexCorrelation, CorporateEvents } from "../types";
+import { CONDITION_LABELS, LONG_CONDITIONS } from "../types";
 
 function CorrInfo({ corr }: { corr: IndexCorrelation | null }) {
   if (!corr) return null;
@@ -75,7 +76,27 @@ export default function StockDetailPage() {
             )}
           </div>
           {hit && (
-            <div className="flex flex-wrap items-center gap-3 mt-0.5">
+            <div className="flex flex-wrap items-center gap-2 mt-0.5">
+              {/* ヒット条件 */}
+              {hit.conditions_matched.map((key) => {
+                const isLong = LONG_CONDITIONS.includes(key as any);
+                return (
+                  <span
+                    key={key}
+                    className={clsx(
+                      "text-xs px-1.5 py-0.5 rounded font-semibold",
+                      isLong
+                        ? "bg-emerald-800 text-emerald-200"
+                        : "bg-rose-800 text-rose-200"
+                    )}
+                  >
+                    {CONDITION_LABELS[key as keyof typeof CONDITION_LABELS] ?? key}
+                  </span>
+                );
+              })}
+              {hit.conditions_matched.length > 0 && (
+                <span className="text-gray-700 text-xs">|</span>
+              )}
               <CorrInfo corr={hit.index_correlation} />
               <AlertBadges events={hit.corporate_events} />
             </div>
