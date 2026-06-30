@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import type { ConditionStat, ScreenHit, WinrateMode } from "../types";
+import type { ConditionStat, ScreenHit } from "../types";
 import clsx from "clsx";
 import DualChartLayout from "../components/chart/DualChartLayout";
 import { useChartData } from "../hooks/useChartData";
@@ -12,11 +12,9 @@ import { fetchEvents } from "../api/client";
 function CorrInfo({ corr }: { corr: IndexCorrelation | null }) {
   if (!corr) return null;
   const color =
-    corr.label === "指数連動型"
-      ? "text-blue-400"
-      : corr.label === "逆相関型"
-      ? "text-orange-400"
-      : "text-emerald-400";
+    corr.label === "指数連動型" ? "text-blue-400"
+    : corr.label === "逆相関型"  ? "text-orange-400"
+    : "text-emerald-400";
   return (
     <span className={clsx("text-xs", color)}>
       [{corr.label}] β={corr.beta} R={corr.correlation} vs {corr.index_name}（直近60日）
@@ -44,7 +42,7 @@ function AlertBadges({ events }: { events?: CorporateEvents }) {
   );
 }
 
-function winrateColor(rate: number): string {
+function pctColor(rate: number): string {
   if (rate >= 0.70) return "text-emerald-300";
   if (rate >= 0.65) return "text-green-400";
   if (rate >= 0.60) return "text-yellow-400";
@@ -65,8 +63,6 @@ export default function StockDetailPage() {
   const [eventsError, setEventsError] = useState(false);
   const [eventsFetched, setEventsFetched] = useState(false);
 
-  const [winrateMode, setWinrateMode] = useState<WinrateMode>("lookup");
-
   const handleFetchEvents = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!code) return;
@@ -85,12 +81,8 @@ export default function StockDetailPage() {
 
   if (!code) return null;
 
-  // キャッシュされたスクリーナー結果から勝率統計を取得
-  const cachedResult = getCachedScreenResult();
   const conditionStats: Record<string, ConditionStat> | null =
-    winrateMode === "backtest"
-      ? (cachedResult?.backtest_stats ?? null)
-      : (cachedResult?.lookup_stats ?? null);
+    getCachedScreenResult()?.lookup_stats ?? null;
 
   const hasAnyAlert = events
     ? events.warrant || events.secondary_offer || events.earnings_near ||
@@ -99,12 +91,8 @@ export default function StockDetailPage() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-950">
-      {/* ヘッダー */}
       <header className="flex items-start gap-3 px-4 py-2 bg-gray-900 border-b border-gray-800 flex-shrink-0">
-        <button
-          onClick={() => navigate(-1)}
-          className="text-gray-400 hover:text-white text-sm mt-0.5 flex-shrink-0"
-        >
+        <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-white text-sm mt-0.5 flex-shrink-0">
           ← 戻る
         </button>
         <div className="flex-1 min-w-0">
@@ -118,33 +106,6 @@ export default function StockDetailPage() {
                 </span>
               </>
             )}
-            {/* 勝率モード切替（コンパクト） */}
-            {hit?.conditions_matched.length ? (
-              <div className="flex rounded overflow-hidden border border-gray-700 text-xs ml-2">
-                <button
-                  onClick={() => setWinrateMode("lookup")}
-                  className={clsx(
-                    "px-2 py-0.5 transition-colors",
-                    winrateMode === "lookup"
-                      ? "bg-blue-700 text-white"
-                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                  )}
-                >
-                  理論値
-                </button>
-                <button
-                  onClick={() => setWinrateMode("backtest")}
-                  className={clsx(
-                    "px-2 py-0.5 transition-colors border-l border-gray-700",
-                    winrateMode === "backtest"
-                      ? "bg-blue-700 text-white"
-                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                  )}
-                >
-                  BT
-                </button>
-              </div>
-            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-0.5">
             {/* ヒット条件（確率%付き） */}
@@ -152,7 +113,6 @@ export default function StockDetailPage() {
               const isLong = LONG_CONDITIONS.includes(key as any);
               const stat = conditionStats?.[key];
               const pct = stat?.win_rate != null ? Math.round(stat.win_rate * 100) : null;
-              const showNoBt = winrateMode === "backtest" && cachedResult?.backtest_stats == null;
               return (
                 <span
                   key={key}
@@ -163,12 +123,9 @@ export default function StockDetailPage() {
                 >
                   {CONDITION_LABELS[key as keyof typeof CONDITION_LABELS] ?? key}
                   {pct != null && (
-                    <span className={clsx("font-semibold", winrateColor(stat!.win_rate!))}>
+                    <span className={clsx("font-semibold", pctColor(stat!.win_rate!))}>
                       {pct}%
                     </span>
-                  )}
-                  {showNoBt && (
-                    <span className="text-gray-500 font-normal">?%</span>
                   )}
                 </span>
               );
@@ -201,11 +158,6 @@ export default function StockDetailPage() {
               </button>
             )}
 
-            {/* バックテストデータなし注記 */}
-            {winrateMode === "backtest" && cachedResult?.backtest_stats == null && (
-              <span className="text-xs text-gray-600">（BTデータなし: スクリーナー画面で計算してください）</span>
-            )}
-
             {/* 指数連動性 */}
             {hit?.index_correlation && (
               <>
@@ -217,7 +169,6 @@ export default function StockDetailPage() {
         </div>
       </header>
 
-      {/* デュアルチャート */}
       <div className="flex-1 overflow-hidden">
         <DualChartLayout code={code} />
       </div>

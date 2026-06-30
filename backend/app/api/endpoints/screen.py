@@ -234,16 +234,12 @@ async def run_screen(req: ScreenRequest):
         lookup_raw = bt.get_lookup_stats()
         lookup_stats = {k: ConditionStat(**v) for k, v in lookup_raw.items()}
 
-        backtest_raw = bt.load_backtest_cache()
-        backtest_stats = {k: ConditionStat(**v) for k, v in backtest_raw.items()} if backtest_raw else None
-
         response = ScreenResponse(
             screened_at=datetime.now(JST),
             total_universe=total_universe,
             hits=hits,
             duration_ms=duration_ms,
             lookup_stats=lookup_stats,
-            backtest_stats=backtest_stats,
         )
         yield {"data": json.dumps(
             _clean_nans({"type": "result", "pct": 100, "data": response.model_dump(mode="json")}),

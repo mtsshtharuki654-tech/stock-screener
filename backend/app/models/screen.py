@@ -83,4 +83,3 @@ class ScreenResponse(BaseModel):
     hits: list[ScreenHit]
     duration_ms: int
     lookup_stats: dict[str, ConditionStat] = Field(default_factory=dict)
-    backtest_stats: Optional[dict[str, ConditionStat]] = None
