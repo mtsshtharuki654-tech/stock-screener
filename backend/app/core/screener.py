@@ -392,6 +392,31 @@ def run_conditions(
     return matched
 
 
+def compute_signal_freshness(
+    daily: pd.DataFrame,
+    weekly: pd.DataFrame,
+    matched_conditions: list[str],
+) -> int:
+    """
+    シグナルが何週間前から継続しているかを返す。
+    1=今週初めて発生（新規）, 2=2週以内, 3=3週以内, 4+=それ以上（古い）
+    """
+    for daily_off, weekly_off in [(5, 1), (10, 2), (15, 3)]:
+        if len(daily) <= daily_off + 15 or len(weekly) <= weekly_off + 5:
+            return daily_off // 5
+        try:
+            past = run_conditions(
+                daily.iloc[:-daily_off],
+                weekly.iloc[:-weekly_off],
+                matched_conditions,
+            )
+        except Exception:
+            past = []
+        if not past:
+            return daily_off // 5  # 5→1, 10→2, 15→3
+    return 4
+
+
 def determine_signal_type(conditions_matched: list[str]) -> str:
     has_long = any(c in LONG_CONDITIONS for c in conditions_matched)
     has_short = any(c in SHORT_CONDITIONS for c in conditions_matched)

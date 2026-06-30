@@ -9,7 +9,10 @@ import pandas as pd
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
-from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot, CorporateEvents, ConditionStat
+from app.models.screen import (
+    ScreenRequest, ScreenResponse, ScreenHit, MASnapshot, CorporateEvents,
+    ConditionStat, MarketEnvironment,
+)
 from app.core import data_pipeline as dp, screener as sc
 from app.core.corporate_events import get_corporate_events
 from app.core.index_correlation import get_correlation_for_stock
@@ -51,6 +54,76 @@ def _ma_snap(df: pd.DataFrame) -> MASnapshot:
         ma20=round(_safe_float(df["MA20"].iloc[-1]), 2) if "MA20" in df.columns else 0,
         ma60=round(_safe_float(df["MA60"].iloc[-1]), 2) if "MA60" in df.columns else 0,
     )
+
+
+def _compute_rs_score(
+    daily_df: pd.DataFrame,
+    segment: str,
+    index_cache: dict,
+    lookback: int = 65,
+) -> float | None:
+    """直近 ~3ヶ月のベンチマーク指数対比超過リターン（%ポイント）を返す。"""
+    index_code = "topix" if segment == "Prime" else "0049"
+    index_df = index_cache.get(index_code, pd.DataFrame())
+    if index_df.empty:
+        return None
+    try:
+        close_col = "C" if "C" in index_df.columns else "Close"
+        adj_col = "AdjC" if "AdjC" in daily_df.columns else "Close"
+
+        stock = daily_df[["Date", adj_col]].copy()
+        stock["Date"] = pd.to_datetime(stock["Date"])
+        stock = stock.sort_values("Date").tail(lookback + 1).reset_index(drop=True)
+        if len(stock) < lookback // 2:
+            return None
+        stock_ret = stock[adj_col].iloc[-1] / stock[adj_col].iloc[0] - 1
+
+        idx = index_df[["Date", close_col]].copy()
+        idx["Date"] = pd.to_datetime(idx["Date"])
+        idx = idx[idx["Date"] >= stock["Date"].iloc[0]].sort_values("Date").reset_index(drop=True)
+        if len(idx) < 10:
+            return None
+        idx_ret = idx[close_col].iloc[-1] / idx[close_col].iloc[0] - 1
+
+        return round((stock_ret - idx_ret) * 100, 1)
+    except Exception:
+        return None
+
+
+def _compute_market_env(index_cache: dict) -> MarketEnvironment | None:
+    """TOPIX のトレンドから市場環境を判定する。"""
+    topix = index_cache.get("topix", pd.DataFrame())
+    if topix.empty or len(topix) < 25:
+        return None
+    try:
+        close_col = "C" if "C" in topix.columns else "Close"
+        df = topix[[close_col]].copy().reset_index(drop=True)
+        df["MA5"]  = df[close_col].rolling(5,  min_periods=3).mean()
+        df["MA20"] = df[close_col].rolling(20, min_periods=10).mean()
+        last = df.iloc[-1]
+        close = float(last[close_col])
+        ma5   = float(last["MA5"])
+        ma20  = float(last["MA20"])
+        above_ma20     = close > ma20
+        ma5_above_ma20 = ma5 > ma20
+        ma5_slope = (ma5 - float(df["MA5"].iloc[-6])) / float(df["MA5"].iloc[-6]) if len(df) >= 6 else 0.0
+        if above_ma20 and ma5_above_ma20 and ma5_slope > 0:
+            status      = "bull"
+            description = "上昇トレンド（TOPIX MA20上、MA5上向き）"
+        elif not above_ma20 or (not ma5_above_ma20 and ma5_slope < -0.005):
+            status      = "bear"
+            description = "下落トレンド（TOPIX MA20割れ）— Longシグナルの信頼性に注意"
+        else:
+            status      = "neutral"
+            description = "方向感なし（TOPIX もみ合い）"
+        return MarketEnvironment(
+            status=status,
+            topix_above_ma20=above_ma20,
+            topix_ma5_above_ma20=ma5_above_ma20,
+            description=description,
+        )
+    except Exception:
+        return None
 
 
 def _make_progress(t0: float, pct: float, msg: str) -> dict:
@@ -186,18 +259,26 @@ async def run_screen(req: ScreenRequest):
                     segment_en = str(row["MktNmEn"].iloc[0]) if not row.empty else "Prime"
                     last_vol = daily_df["AdjVo"].iloc[-1]
                     avg_vol = weekly_df["Volume"].iloc[-4:].mean() / 5 if len(weekly_df) >= 4 else 0.0
+                    last_vol_int = int(last_vol) if pd.notna(last_vol) else 0
+                    avg_vol_int  = int(avg_vol)  if pd.notna(avg_vol)  else 0
+                    vol_ratio = round(last_vol / avg_vol, 2) if avg_vol > 0 and pd.notna(last_vol) else None
+                    rs = _compute_rs_score(daily_df, segment_en, index_cache)
+                    freshness = sc.compute_signal_freshness(daily_df, weekly_df, matched)
                     result.append(ScreenHit(
                         code=code,
                         name=name,
                         segment=segment_en,
                         last_price=_safe_float(daily_df["AdjC"].iloc[-1]),
-                        last_volume=int(last_vol) if pd.notna(last_vol) else 0,
-                        avg_weekly_volume=int(avg_vol) if pd.notna(avg_vol) else 0,
+                        last_volume=last_vol_int,
+                        avg_weekly_volume=avg_vol_int,
                         conditions_matched=matched,
                         signal_type=sc.determine_signal_type(matched),
                         weekly_ma=_ma_snap(weekly_df),
                         daily_ma=_ma_snap(daily_df),
                         index_correlation=get_correlation_for_stock(daily_df, segment_en, index_cache),
+                        volume_ratio=vol_ratio,
+                        rs_score=rs,
+                        signal_freshness_weeks=freshness,
                     ))
                 except Exception:
                     pass
@@ -233,6 +314,7 @@ async def run_screen(req: ScreenRequest):
 
         lookup_raw = bt.get_lookup_stats()
         lookup_stats = {k: ConditionStat(**v) for k, v in lookup_raw.items()}
+        market_env = _compute_market_env(index_cache)
 
         response = ScreenResponse(
             screened_at=datetime.now(JST),
@@ -240,6 +322,7 @@ async def run_screen(req: ScreenRequest):
             hits=hits,
             duration_ms=duration_ms,
             lookup_stats=lookup_stats,
+            market_env=market_env,
         )
         yield {"data": json.dumps(
             _clean_nans({"type": "result", "pct": 100, "data": response.model_dump(mode="json")}),

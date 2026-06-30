@@ -62,6 +62,19 @@ function pctColor(rate: number): string {
   return "text-gray-400";
 }
 
+function FreshnessBadge({ weeks }: { weeks: number }) {
+  const cfg =
+    weeks <= 1 ? { label: "新規", cls: "bg-blue-800 text-blue-200" }
+    : weeks <= 2 ? { label: "2週", cls: "bg-indigo-900 text-indigo-300" }
+    : weeks <= 3 ? { label: "3週", cls: "bg-gray-700 text-gray-300" }
+    : { label: "古い", cls: "bg-gray-800 text-gray-500" };
+  return (
+    <span className={clsx("text-[10px] px-1 py-0.5 rounded font-medium", cfg.cls)}>
+      {cfg.label}
+    </span>
+  );
+}
+
 function avgRate(keys: string[], stats: Record<string, ConditionStat> | undefined): number | null {
   if (!stats || keys.length === 0) return null;
   const rates = keys.map((k) => stats[k]?.win_rate).filter((r): r is number => r != null);
@@ -135,22 +148,40 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
         {hit.last_price.toLocaleString()}円
       </td>
 
-      {/* 直近出来高 */}
-      <td className="px-3 py-2 text-sm text-right font-mono text-gray-300">
-        {(hit.last_volume / 10000).toFixed(1)}万
+      {/* 出来高 / 比率 */}
+      <td className="px-3 py-2 text-sm text-right font-mono">
+        <div className="text-gray-300">{(hit.last_volume / 10000).toFixed(1)}万</div>
+        <div className="text-xs text-gray-500">avg {(hit.avg_weekly_volume / 10000).toFixed(1)}万</div>
+        {hit.volume_ratio != null && (
+          <div className={clsx(
+            "text-xs font-bold tabular-nums",
+            hit.volume_ratio >= 2.0 ? "text-emerald-400"
+            : hit.volume_ratio >= 1.5 ? "text-green-400"
+            : hit.volume_ratio >= 1.0 ? "text-yellow-400"
+            : "text-gray-500"
+          )}>
+            {hit.volume_ratio >= 1.0 ? "↑" : "↓"}{hit.volume_ratio.toFixed(1)}x
+          </div>
+        )}
       </td>
 
-      {/* 週平均出来高 */}
-      <td className="px-3 py-2 text-sm text-right font-mono text-gray-400">
-        {(hit.avg_weekly_volume / 10000).toFixed(1)}万
-      </td>
-
-      {/* シグナル */}
+      {/* シグナル / RS */}
       <td className="px-3 py-2">
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {isLong  && <span className="text-xs bg-emerald-800 text-emerald-200 px-1.5 py-0.5 rounded">Long</span>}
           {isShort && <span className="text-xs bg-rose-800 text-rose-200 px-1.5 py-0.5 rounded">Short</span>}
         </div>
+        {hit.rs_score != null && (
+          <div className={clsx(
+            "text-xs font-semibold mt-0.5",
+            hit.rs_score >= 5  ? "text-emerald-400"
+            : hit.rs_score >= 0  ? "text-green-400"
+            : hit.rs_score >= -5 ? "text-yellow-400"
+            : "text-red-400"
+          )}>
+            RS {hit.rs_score >= 0 ? "+" : ""}{hit.rs_score.toFixed(1)}%
+          </div>
+        )}
       </td>
 
       {/* 翌週確率 */}
@@ -160,7 +191,7 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
 
       {/* ヒット条件 */}
       <td className="px-3 py-2">
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 items-center">
           {hit.conditions_matched.map((key) => {
             const isL = LONG_CONDITIONS.includes(key as any);
             const stat = conditionStats?.[key];
@@ -182,6 +213,9 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
               </span>
             );
           })}
+          {hit.signal_freshness_weeks != null && (
+            <FreshnessBadge weeks={hit.signal_freshness_weeks} />
+          )}
         </div>
       </td>
 

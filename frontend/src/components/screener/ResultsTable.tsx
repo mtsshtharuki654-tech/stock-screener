@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
-import type { ScreenResponse } from "../../types";
+import type { MarketEnvironment, ScreenResponse } from "../../types";
 import ResultRow from "./ResultRow";
+import clsx from "clsx";
 
 interface Props {
   result: ScreenResponse | null;
@@ -15,9 +16,26 @@ interface Props {
 }
 
 const HEADERS = [
-  "コード", "銘柄名", "株価", "直近出来高", "週平均出来高",
-  "シグナル", "翌週確率", "ヒット条件", "注意情報", "指数連動性",
+  "コード", "銘柄名", "株価", "出来高 / 比率",
+  "シグナル / RS", "翌週確率", "ヒット条件", "注意情報", "指数連動性",
 ];
+
+function MarketEnvBanner({ env }: { env: MarketEnvironment }) {
+  const cfg = {
+    bull:    { bg: "bg-emerald-900/40 border-emerald-700/60", text: "text-emerald-300", icon: "↑", label: "強気相場" },
+    bear:    { bg: "bg-red-900/40 border-red-700/60",         text: "text-red-300",     icon: "↓", label: "弱気相場" },
+    neutral: { bg: "bg-yellow-900/30 border-yellow-700/50",   text: "text-yellow-300",  icon: "→", label: "方向感なし" },
+  }[env.status];
+  return (
+    <div className={clsx("px-4 py-1.5 border-b flex items-center gap-2 text-xs", cfg.bg)}>
+      <span className={clsx("font-bold", cfg.text)}>{cfg.icon} TOPIX {cfg.label}</span>
+      <span className="text-gray-400">{env.description}</span>
+      {env.status === "bear" && (
+        <span className="ml-auto text-red-400 font-medium">⚠ Longシグナルの勝率低下注意</span>
+      )}
+    </div>
+  );
+}
 
 function formatTime(secs: number): string {
   if (secs < 60) return `${secs}秒`;
@@ -80,6 +98,9 @@ export default function ResultsTable({ result, isFromCache, onClear, isLoading, 
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 市場環境バナー */}
+      {result.market_env && <MarketEnvBanner env={result.market_env} />}
+
       {/* 前回の結果バナー */}
       {isFromCache && (
         <div className="px-4 py-1.5 bg-yellow-900/40 border-b border-yellow-700/50 flex items-center gap-3 text-xs text-yellow-300">

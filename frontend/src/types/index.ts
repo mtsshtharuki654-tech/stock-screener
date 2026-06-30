@@ -107,6 +107,9 @@ export interface ScreenHit {
   daily_ma: MASnapshot;
   corporate_events: CorporateEvents;
   index_correlation: IndexCorrelation | null;
+  volume_ratio: number | null;
+  rs_score: number | null;
+  signal_freshness_weeks: number | null;
 }
 
 export interface ScreenRequest {
@@ -122,10 +125,18 @@ export interface ConditionStat {
   source: "backtest" | "lookup";
 }
 
+export interface MarketEnvironment {
+  status: "bull" | "bear" | "neutral";
+  topix_above_ma20: boolean;
+  topix_ma5_above_ma20: boolean;
+  description: string;
+}
+
 export interface ScreenResponse {
   screened_at: string;
   total_universe: number;
   hits: ScreenHit[];
   duration_ms: number;
   lookup_stats: Record<string, ConditionStat>;
+  market_env: MarketEnvironment | null;
 }

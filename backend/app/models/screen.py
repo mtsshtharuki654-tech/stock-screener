@@ -3,6 +3,13 @@ from typing import Literal, Optional
 from datetime import datetime
 
 
+class MarketEnvironment(BaseModel):
+    status: Literal["bull", "bear", "neutral"]
+    topix_above_ma20: bool
+    topix_ma5_above_ma20: bool
+    description: str
+
+
 class ConditionStat(BaseModel):
     win_rate: Optional[float] = None  # None = サンプル不足またはルックアップ未定義
     n: Optional[int] = None           # サンプル数（ルックアップモードではNone）
@@ -75,6 +82,9 @@ class ScreenHit(BaseModel):
     daily_ma: MASnapshot
     corporate_events: CorporateEvents = Field(default_factory=CorporateEvents)
     index_correlation: Optional[IndexCorrelation] = None
+    volume_ratio: Optional[float] = None        # 直近出来高 / 平均日次出来高
+    rs_score: Optional[float] = None            # vs ベンチマーク指数の超過リターン (%)
+    signal_freshness_weeks: Optional[int] = None  # 1=新規(≤1週), 2=2週, 3=3週, 4+=古い
 
 
 class ScreenResponse(BaseModel):
@@ -83,3 +93,4 @@ class ScreenResponse(BaseModel):
     hits: list[ScreenHit]
     duration_ms: int
     lookup_stats: dict[str, ConditionStat] = Field(default_factory=dict)
+    market_env: Optional[MarketEnvironment] = None

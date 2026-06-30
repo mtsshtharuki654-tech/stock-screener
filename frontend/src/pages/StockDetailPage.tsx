@@ -57,6 +57,32 @@ function pctColor(rate: number): string {
   return "text-gray-400";
 }
 
+function RsBadge({ rs }: { rs: number }) {
+  const color =
+    rs >= 5  ? "text-emerald-400"
+    : rs >= 0  ? "text-green-400"
+    : rs >= -5 ? "text-yellow-400"
+    : "text-red-400";
+  return (
+    <span className={clsx("text-xs font-semibold", color)}>
+      RS {rs >= 0 ? "+" : ""}{rs.toFixed(1)}%
+    </span>
+  );
+}
+
+function VolRatioBadge({ ratio }: { ratio: number }) {
+  const color =
+    ratio >= 2.0 ? "text-emerald-400"
+    : ratio >= 1.5 ? "text-green-400"
+    : ratio >= 1.0 ? "text-yellow-400"
+    : "text-gray-500";
+  return (
+    <span className={clsx("text-xs font-semibold", color)}>
+      出来高{ratio >= 1 ? "↑" : "↓"}{ratio.toFixed(1)}x
+    </span>
+  );
+}
+
 export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
@@ -162,6 +188,26 @@ export default function StockDetailPage() {
               </>
             ) : (
               <span className="text-xs text-gray-500">注意情報なし</span>
+            )}
+
+            {/* RS・出来高比率・鮮度 */}
+            {(hit?.rs_score != null || hit?.volume_ratio != null || hit?.signal_freshness_weeks != null) && (
+              <>
+                <span className="text-gray-700 text-xs">|</span>
+                {hit.rs_score != null && <RsBadge rs={hit.rs_score} />}
+                {hit.volume_ratio != null && <VolRatioBadge ratio={hit.volume_ratio} />}
+                {hit.signal_freshness_weeks != null && (
+                  <span className={clsx(
+                    "text-xs font-semibold",
+                    hit.signal_freshness_weeks <= 1 ? "text-blue-400"
+                    : hit.signal_freshness_weeks <= 2 ? "text-indigo-400"
+                    : hit.signal_freshness_weeks <= 3 ? "text-gray-400"
+                    : "text-gray-600"
+                  )}>
+                    {hit.signal_freshness_weeks <= 1 ? "新規" : `${hit.signal_freshness_weeks}週`}
+                  </span>
+                )}
+              </>
             )}
 
             {/* 指数連動性 */}
