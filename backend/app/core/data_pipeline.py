@@ -47,15 +47,20 @@ def _save_cache(df: pd.DataFrame) -> None:
 
 
 def load_universe(segments: list[str]) -> pd.DataFrame:
-    """Load equity master with caching (7d TTL)."""
+    """Load equity master with caching (7日TTL、API失敗時はキャッシュで続行)。"""
     now = _today_jst()
     if UNIVERSE_CACHE.exists():
         mtime = datetime.fromtimestamp(UNIVERSE_CACHE.stat().st_mtime, tz=JST)
         if (now - mtime).total_seconds() < 604800:  # 7 days
             return pd.read_parquet(UNIVERSE_CACHE)
-    df = jq.get_universe(segments)
-    df.to_parquet(UNIVERSE_CACHE)
-    return df
+    try:
+        df = jq.get_universe(segments)
+        df.to_parquet(UNIVERSE_CACHE)
+        return df
+    except Exception:
+        if UNIVERSE_CACHE.exists():
+            return pd.read_parquet(UNIVERSE_CACHE)
+        raise
 
 
 def _naive(dt: datetime) -> datetime:
