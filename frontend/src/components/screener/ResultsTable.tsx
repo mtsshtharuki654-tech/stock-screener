@@ -4,6 +4,8 @@ import ResultRow from "./ResultRow";
 
 interface Props {
   result: ScreenResponse | null;
+  isFromCache?: boolean;
+  onClear?: () => void;
   isLoading: boolean;
   progress: string;
   pct: number;
@@ -24,7 +26,7 @@ function formatTime(secs: number): string {
   return s > 0 ? `${m}分${s}秒` : `${m}分`;
 }
 
-export default function ResultsTable({ result, isLoading, progress, pct, elapsed, eta, error }: Props) {
+export default function ResultsTable({ result, isFromCache, onClear, isLoading, progress, pct, elapsed, eta, error }: Props) {
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -82,6 +84,18 @@ export default function ResultsTable({ result, isLoading, progress, pct, elapsed
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 前回の結果バナー */}
+      {isFromCache && (
+        <div className="px-4 py-1.5 bg-yellow-900/40 border-b border-yellow-700/50 flex items-center gap-3 text-xs text-yellow-300">
+          <span>前回のスクリーニング結果を表示中（{new Date(result.screened_at).toLocaleString("ja-JP")}）</span>
+          <button
+            onClick={onClear}
+            className="ml-auto px-2 py-0.5 rounded bg-yellow-700/50 hover:bg-yellow-600/60 text-yellow-200 text-xs"
+          >
+            クリア
+          </button>
+        </div>
+      )}
       {/* サマリー */}
       <div className="px-4 py-2 bg-gray-900 border-b border-gray-800 flex items-center gap-4 text-sm text-gray-400">
         <span>ユニバース: <strong className="text-white">{result.total_universe.toLocaleString()}</strong> 銘柄</span>

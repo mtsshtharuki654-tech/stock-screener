@@ -39,6 +39,7 @@ function loadResult(): ScreenResponse | null {
 
 export interface ScreenerState {
   data: ScreenResponse | null;
+  isFromCache: boolean;
   isPending: boolean;
   progress: string;
   pct: number;
@@ -48,20 +49,30 @@ export interface ScreenerState {
 }
 
 export function useScreener() {
-  const [state, setState] = useState<ScreenerState>(() => ({
-    data: loadResult(),
-    isPending: false,
-    progress: "",
-    pct: 0,
-    elapsed: 0,
-    eta: null,
-    error: null,
-  }));
+  const [state, setState] = useState<ScreenerState>(() => {
+    const cached = loadResult();
+    return {
+      data: cached,
+      isFromCache: cached !== null,
+      isPending: false,
+      progress: "",
+      pct: 0,
+      elapsed: 0,
+      eta: null,
+      error: null,
+    };
+  });
   const cancelRef = useRef<(() => void) | null>(null);
+
+  const clearResult = useCallback(() => {
+    sessionStorage.removeItem(RESULT_STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
+    setState((s) => ({ ...s, data: null, isFromCache: false, error: null }));
+  }, []);
 
   const mutate = useCallback((req: ScreenRequest) => {
     cancelRef.current?.();
-    setState({ data: null, isPending: true, progress: "接続中...", pct: 0, elapsed: 0, eta: null, error: null });
+    setState({ data: null, isFromCache: false, isPending: true, progress: "接続中...", pct: 0, elapsed: 0, eta: null, error: null });
 
     const cancel = streamScreen(
       req,
@@ -69,12 +80,12 @@ export function useScreener() {
       (res) => {
         cacheHits(res.hits);
         saveResult(res);
-        setState({ data: res, isPending: false, progress: "", pct: 100, elapsed: 0, eta: null, error: null });
+        setState({ data: res, isFromCache: false, isPending: false, progress: "", pct: 100, elapsed: 0, eta: null, error: null });
       },
-      (msg) => setState({ data: null, isPending: false, progress: "", pct: 0, elapsed: 0, eta: null, error: new Error(msg) }),
+      (msg) => setState({ data: null, isFromCache: false, isPending: false, progress: "", pct: 0, elapsed: 0, eta: null, error: new Error(msg) }),
     );
     cancelRef.current = cancel;
   }, []);
 
-  return { ...state, mutate };
+  return { ...state, mutate, clearResult };
 }
