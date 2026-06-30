@@ -1,7 +1,7 @@
 import asyncio
 import pandas as pd
-from datetime import datetime, timedelta, timezone, date
 import yfinance as yf
+from datetime import datetime, timedelta, timezone
 from app.core.yfinance_client import _to_yf_ticker
 from app.models.screen import CorporateEvents
 
@@ -12,50 +12,45 @@ def _now_jst() -> datetime:
     return datetime.now(JST)
 
 
-def _get_next_earnings_yfinance(code: str) -> date | None:
-    """yfinanceで直近の決算予定日を取得。取得できなければNoneを返す。"""
+def _get_next_earnings(code: str) -> tuple[int | None, bool]:
+    """
+    yfinanceで次の決算予定日を取得。
+    Returns (days_until, is_near) or (None, False) if not found.
+    """
+    today = _now_jst().date()
+    ticker_str = _to_yf_ticker(code)
     try:
-        ticker = yf.Ticker(_to_yf_ticker(code))
-        cal = ticker.calendar
-        if cal is None:
-            return None
-        # calはdict形式 {"Earnings Date": [Timestamp, ...], ...}
-        if isinstance(cal, dict):
-            dates = cal.get("Earnings Date", [])
-            if dates:
-                d = pd.Timestamp(dates[0]).date() if not isinstance(dates[0], date) else dates[0]
-                return d
-        # DataFrame形式の場合
-        if isinstance(cal, pd.DataFrame) and not cal.empty:
-            for col in cal.columns:
-                if "Earnings" in col or "earnings" in col:
-                    val = cal[col].dropna()
-                    if not val.empty:
-                        return pd.Timestamp(val.iloc[0]).date()
+        t = yf.Ticker(ticker_str)
+        ed = t.earnings_dates
+        if ed is None or ed.empty:
+            return None, False
+
+        # インデックスをタイムゾーンなしに変換
+        idx = ed.index
+        if idx.tz is not None:
+            idx = idx.tz_convert(None)
+
+        # 今日以降の最初の決算日を探す
+        for ts in idx:
+            d = ts.date()
+            if d >= today:
+                days = (d - today).days
+                return days, days <= 45
     except Exception:
         pass
-    return None
+    return None, False
 
 
-def build_corporate_events(code: str, earnings_date: date | None = None) -> CorporateEvents:
-    """決算接近フラグを生成。earnings_dateがなければyfinanceで取得を試みる。"""
+def build_corporate_events(code: str) -> CorporateEvents:
+    """yfinanceで決算接近フラグを生成。"""
     events = CorporateEvents()
-    today = _now_jst().date()
-
-    # 決算日が渡されていなければyfinanceで取得
-    ann_date = earnings_date
-    if ann_date is None:
-        ann_date = _get_next_earnings_yfinance(code)
-
-    if ann_date is not None:
-        days_until = (ann_date - today).days
-        if 0 <= days_until <= 30:
-            events.earnings_near = True
-            events.earnings_days_until = days_until
-
+    days_until, is_near = _get_next_earnings(code)
+    if is_near and days_until is not None:
+        events.earnings_near = True
+        events.earnings_days_until = days_until
     return events
 
 
 async def get_corporate_events(code: str) -> CorporateEvents:
-    """非同期で注意情報を取得するエントリポイント（エンドポイントから呼ばれる）。"""
+    """非同期で注意情報を取得するエントリポイント。"""
     return await asyncio.to_thread(build_corporate_events, code)
