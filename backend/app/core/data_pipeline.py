@@ -160,17 +160,20 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     daily["Close"] = daily["AdjC"]
     daily["Volume"] = daily["AdjVo"]
 
-    # 週足リサンプリング（銘柄ごと）→ MA は一括計算で高速化
-    weekly_frames = []
-    for code, grp in daily.groupby("Code"):
-        wk = resample_to_weekly(grp[["Date", "O", "H", "L", "AdjC", "AdjVo"]])
-        wk["Code"] = code
-        weekly_frames.append(wk)
+    # 週足リサンプリング - groupbyベクトル化（銘柄ごとループより大幅高速）
+    # 各日付を週末金曜日に丸めてからgroupby集計
+    week_end = daily["Date"] + pd.to_timedelta((4 - daily["Date"].dt.dayofweek) % 7, unit="D")
+    weekly_raw = (
+        daily.assign(Date=week_end)
+        .groupby(["Code", "Date"], as_index=False)
+        .agg(Open=("O", "first"), High=("H", "max"), Low=("L", "min"), Close=("AdjC", "last"), Volume=("AdjVo", "sum"))
+        .dropna(subset=["Close"])
+    )
 
-    if not weekly_frames:
+    if weekly_raw.empty:
         return daily, pd.DataFrame()
 
-    weekly_all = pd.concat(weekly_frames, ignore_index=True).sort_values(["Code", "Date"])
+    weekly_all = weekly_raw.sort_values(["Code", "Date"])
     for p in [5, 20, 60]:
         min_p = max(p // 2, 1)
         weekly_all[f"MA{p}"] = weekly_all.groupby("Code")["Close"].transform(
