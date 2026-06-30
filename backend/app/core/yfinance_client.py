@@ -29,11 +29,19 @@ def _to_jquants_format(df: pd.DataFrame, code: str) -> pd.DataFrame:
     return df[cols].dropna(subset=["AdjC"]).sort_values("Date").reset_index(drop=True)
 
 
+def _to_yf_ticker(code: str) -> str:
+    """J-Quants 5桁コード（例: 72030）をYahoo Finance用4桁コード（例: 7203.T）に変換。"""
+    c = str(code)
+    if len(c) == 5 and c.endswith("0"):
+        c = c[:-1]
+    return f"{c}.T"
+
+
 def fetch_single(code: str, start: datetime, end: datetime) -> pd.DataFrame:
     """単一銘柄のOHLCVを取得。"""
     try:
         raw = yf.download(
-            f"{code}.T",
+            _to_yf_ticker(code),
             start=start.strftime("%Y-%m-%d"),
             end=end.strftime("%Y-%m-%d"),
             auto_adjust=True,
@@ -61,7 +69,7 @@ def fetch_batch(
 
     for batch_start in range(0, total, batch_size):
         batch_codes = codes[batch_start:batch_start + batch_size]
-        tickers = [f"{c}.T" for c in batch_codes]
+        tickers = [_to_yf_ticker(c) for c in batch_codes]
 
         try:
             raw = yf.download(

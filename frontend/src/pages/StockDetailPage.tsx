@@ -48,7 +48,7 @@ export default function StockDetailPage() {
   const hit =
     (location.state as { hit?: ScreenHit } | null)?.hit ??
     (code ? getCachedHit(code) : null);
-  const { data: weeklyData } = useChartData(code ?? null, "weekly", 26);
+  const { data: weeklyData } = useChartData(code ?? null, "weekly", 52);
 
   if (!code) return null;
 
