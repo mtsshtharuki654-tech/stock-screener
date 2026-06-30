@@ -29,7 +29,7 @@ interface Props {
 
 const HEADERS = [
   "コード", "銘柄名", "株価", "直近出来高", "週平均出来高",
-  "シグナル", "ヒット条件", "注意情報", "指数連動性",
+  "シグナル", "翌週確率", "ヒット条件", "注意情報", "指数連動性",
 ];
 
 function formatTime(secs: number): string {

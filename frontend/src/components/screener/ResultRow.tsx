@@ -1,7 +1,7 @@
 import { useState } from "react";
 import clsx from "clsx";
 import type { ConditionStat, CorporateEvents, ScreenHit } from "../../types";
-import { CONDITION_LABELS, LONG_CONDITIONS } from "../../types";
+import { CONDITION_LABELS, LONG_CONDITIONS, SHORT_CONDITIONS } from "../../types";
 import { fetchEvents } from "../../api/client";
 
 interface Props {
@@ -12,7 +12,6 @@ interface Props {
 
 function EventBadges({ events }: { events: CorporateEvents }) {
   const badges: { label: string; color: string }[] = [];
-
   if (events.warrant)
     badges.push({ label: "ワラント", color: "bg-red-700 text-red-100" });
   if (events.secondary_offer)
@@ -25,10 +24,8 @@ function EventBadges({ events }: { events: CorporateEvents }) {
     badges.push({ label: "自社株買", color: "bg-emerald-700 text-emerald-100" });
   if (events.earnings_revision_up)
     badges.push({ label: "業績上方", color: "bg-emerald-600 text-emerald-100" });
-
   if (badges.length === 0)
     return <span className="text-xs text-gray-600">なし</span>;
-
   return (
     <div className="flex flex-wrap gap-1">
       {badges.map((b) => (
@@ -46,18 +43,55 @@ function CorrBadge({ corr }: { corr: ScreenHit["index_correlation"] }) {
     corr.label === "指数連動型" ? "text-blue-300"
     : corr.label === "逆相関型"  ? "text-orange-300"
     : "text-emerald-300";
-  return (
-    <span className={clsx("text-xs", color)}>
-      {corr.label} β{corr.beta}
-    </span>
-  );
+  return <span className={clsx("text-xs", color)}>{corr.label} β{corr.beta}</span>;
 }
 
-function winrateColor(rate: number): string {
+function pctColor(rate: number): string {
   if (rate >= 0.70) return "text-emerald-300";
   if (rate >= 0.65) return "text-green-400";
   if (rate >= 0.60) return "text-yellow-400";
   return "text-gray-400";
+}
+
+function avgRate(keys: string[], stats: Record<string, ConditionStat> | undefined): number | null {
+  if (!stats || keys.length === 0) return null;
+  const rates = keys.map((k) => stats[k]?.win_rate).filter((r): r is number => r != null);
+  if (rates.length === 0) return null;
+  return rates.reduce((a, b) => a + b, 0) / rates.length;
+}
+
+function WinrateCell({
+  hit,
+  conditionStats,
+}: {
+  hit: ScreenHit;
+  conditionStats?: Record<string, ConditionStat>;
+}) {
+  const longKeys = hit.conditions_matched.filter((k) => LONG_CONDITIONS.includes(k as any));
+  const shortKeys = hit.conditions_matched.filter((k) => SHORT_CONDITIONS.includes(k as any));
+  const longRate = avgRate(longKeys, conditionStats);
+  const shortRate = avgRate(shortKeys, conditionStats);
+
+  if (longRate == null && shortRate == null) {
+    return <span className="text-xs text-gray-600">—</span>;
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {longRate != null && (
+        <span className={clsx("text-sm font-bold tabular-nums", pctColor(longRate))}>
+          {Math.round(longRate * 100)}%
+          <span className="text-xs font-normal ml-0.5 text-gray-400">上昇</span>
+        </span>
+      )}
+      {shortRate != null && (
+        <span className={clsx("text-sm font-bold tabular-nums", pctColor(shortRate))}>
+          {Math.round(shortRate * 100)}%
+          <span className="text-xs font-normal ml-0.5 text-gray-400">下落</span>
+        </span>
+      )}
+    </div>
+  );
 }
 
 export default function ResultRow({ hit, onClick, conditionStats }: Props) {
@@ -124,6 +158,11 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
         </div>
       </td>
 
+      {/* 翌週確率（専用列） */}
+      <td className="px-3 py-2">
+        <WinrateCell hit={hit} conditionStats={conditionStats} />
+      </td>
+
       {/* ヒット条件（確率%付き） */}
       <td className="px-3 py-2">
         <div className="flex flex-wrap gap-1">
@@ -141,7 +180,7 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
               >
                 {CONDITION_LABELS[key as keyof typeof CONDITION_LABELS] ?? key}
                 {pct != null && (
-                  <span className={clsx("font-semibold", winrateColor(stat!.win_rate!))}>
+                  <span className={clsx("font-semibold", pctColor(stat!.win_rate!))}>
                     {pct}%
                   </span>
                 )}
@@ -151,7 +190,7 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
         </div>
       </td>
 
-      {/* コーポレート情報（オンデマンド） */}
+      {/* 注意情報（オンデマンド） */}
       <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
         {events ? (
           <EventBadges events={events} />
