@@ -61,20 +61,32 @@ export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+
   const hit =
     (location.state as { hit?: ScreenHit } | null)?.hit ??
     (code ? getCachedHit(code) : null);
-  const { data: weeklyData } = useChartData(code ?? null, "weekly", 52);
 
+  const { data: weeklyData } = useChartData(code ?? null, "weekly", 52);
   const [events, setEvents] = useState<CorporateEvents | null>(null);
 
-  // マウント時に自動取得
+  // マウント時に自動取得（codeが変わるたびにリセット＆再取得）
   useEffect(() => {
+    setEvents(null);
     if (!code) return;
     fetchEvents(code).then(setEvents).catch(() => {});
   }, [code]);
 
   if (!code) return null;
+
+  // スクリーナー結果から前後ナビゲーション
+  const allHits = getCachedScreenResult()?.hits ?? [];
+  const currentIdx = allHits.findIndex((h) => h.code === code);
+  const prevHit = currentIdx > 0 ? allHits[currentIdx - 1] : null;
+  const nextHit = currentIdx >= 0 && currentIdx < allHits.length - 1 ? allHits[currentIdx + 1] : null;
+
+  const goTo = (target: ScreenHit) => {
+    navigate(`/stock/${target.code}`, { state: { hit: target } });
+  };
 
   const conditionStats: Record<string, ConditionStat> | null =
     getCachedScreenResult()?.lookup_stats ?? null;
@@ -87,10 +99,17 @@ export default function StockDetailPage() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-950">
-      <header className="flex items-start gap-3 px-4 py-2 bg-gray-900 border-b border-gray-800 flex-shrink-0">
-        <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-white text-sm mt-0.5 flex-shrink-0">
-          ← 戻る
+      <header className="flex items-start gap-2 px-3 py-2 bg-gray-900 border-b border-gray-800 flex-shrink-0">
+
+        {/* 戻る */}
+        <button
+          onClick={() => navigate(-1)}
+          className="text-gray-400 hover:text-white text-sm mt-0.5 flex-shrink-0 px-1"
+        >
+          ←
         </button>
+
+        {/* 銘柄情報 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-base font-bold font-mono text-blue-400">{code}</span>
@@ -102,9 +121,15 @@ export default function StockDetailPage() {
                 </span>
               </>
             )}
+            {/* 位置表示 */}
+            {allHits.length > 0 && currentIdx >= 0 && (
+              <span className="text-xs text-gray-500">
+                {currentIdx + 1} / {allHits.length}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-0.5">
-            {/* ヒット条件（確率%付き） */}
+            {/* ヒット条件 */}
             {hit?.conditions_matched.map((key) => {
               const isLong = LONG_CONDITIONS.includes(key as any);
               const stat = conditionStats?.[key];
@@ -127,7 +152,7 @@ export default function StockDetailPage() {
               );
             })}
 
-            {/* 注意情報（自動表示） */}
+            {/* 注意情報 */}
             {events == null ? (
               <span className="text-xs text-gray-600">取得中…</span>
             ) : hasAnyAlert ? (
@@ -148,6 +173,40 @@ export default function StockDetailPage() {
             )}
           </div>
         </div>
+
+        {/* 前後ナビゲーション */}
+        {allHits.length > 1 && (
+          <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+            <button
+              onClick={() => prevHit && goTo(prevHit)}
+              disabled={!prevHit}
+              title={prevHit ? `← ${prevHit.code} ${prevHit.name}` : ""}
+              className={clsx(
+                "flex flex-col items-center px-2.5 py-1 rounded text-xs transition-colors border",
+                prevHit
+                  ? "border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-400"
+                  : "border-gray-800 text-gray-700 cursor-not-allowed"
+              )}
+            >
+              <span className="text-base leading-none">‹</span>
+              {prevHit && <span className="text-gray-500 text-[10px] leading-tight">{prevHit.code}</span>}
+            </button>
+            <button
+              onClick={() => nextHit && goTo(nextHit)}
+              disabled={!nextHit}
+              title={nextHit ? `${nextHit.code} ${nextHit.name} →` : ""}
+              className={clsx(
+                "flex flex-col items-center px-2.5 py-1 rounded text-xs transition-colors border",
+                nextHit
+                  ? "border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-400"
+                  : "border-gray-800 text-gray-700 cursor-not-allowed"
+              )}
+            >
+              <span className="text-base leading-none">›</span>
+              {nextHit && <span className="text-gray-500 text-[10px] leading-tight">{nextHit.code}</span>}
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="flex-1 overflow-hidden">
