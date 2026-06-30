@@ -11,7 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot, CorporateEvents
 from app.core import data_pipeline as dp, screener as sc
-from app.core.corporate_events import fetch_earnings_schedule, build_corporate_events
+from app.core.corporate_events import get_corporate_events
 from app.core.index_correlation import get_correlation_for_stock
 
 router = APIRouter()
@@ -245,6 +245,5 @@ async def run_screen(req: ScreenRequest):
 
 @router.get("/events/{code}", response_model=CorporateEvents)
 async def get_stock_events(code: str):
-    """銘柄コードの最新コーポレート情報を返す（オンデマンド）。"""
-    earnings_df = await fetch_earnings_schedule()
-    return build_corporate_events(code, earnings_df)
+    """銘柄コードの注意情報を返す（オンデマンド）。yfinanceで決算日を取得。"""
+    return await get_corporate_events(code)
