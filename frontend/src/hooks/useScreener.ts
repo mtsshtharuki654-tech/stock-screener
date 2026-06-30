@@ -37,6 +37,10 @@ function loadResult(): ScreenResponse | null {
   }
 }
 
+export function getCachedScreenResult(): ScreenResponse | null {
+  return loadResult();
+}
+
 export interface ScreenerState {
   data: ScreenResponse | null;
   isFromCache: boolean;

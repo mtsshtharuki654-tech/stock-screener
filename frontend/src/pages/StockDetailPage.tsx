@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import type { ScreenHit } from "../types";
+import type { ConditionStat, ScreenHit, WinrateMode } from "../types";
 import clsx from "clsx";
 import DualChartLayout from "../components/chart/DualChartLayout";
 import { useChartData } from "../hooks/useChartData";
-import { getCachedHit } from "../hooks/useScreener";
+import { getCachedHit, getCachedScreenResult } from "../hooks/useScreener";
 import type { IndexCorrelation, CorporateEvents } from "../types";
 import { CONDITION_LABELS, LONG_CONDITIONS } from "../types";
 import { fetchEvents } from "../api/client";
@@ -44,6 +44,13 @@ function AlertBadges({ events }: { events?: CorporateEvents }) {
   );
 }
 
+function winrateColor(rate: number): string {
+  if (rate >= 0.70) return "text-emerald-300";
+  if (rate >= 0.65) return "text-green-400";
+  if (rate >= 0.60) return "text-yellow-400";
+  return "text-gray-400";
+}
+
 export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
@@ -57,6 +64,8 @@ export default function StockDetailPage() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState(false);
   const [eventsFetched, setEventsFetched] = useState(false);
+
+  const [winrateMode, setWinrateMode] = useState<WinrateMode>("lookup");
 
   const handleFetchEvents = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -75,6 +84,13 @@ export default function StockDetailPage() {
   };
 
   if (!code) return null;
+
+  // キャッシュされたスクリーナー結果から勝率統計を取得
+  const cachedResult = getCachedScreenResult();
+  const conditionStats: Record<string, ConditionStat> | null =
+    winrateMode === "backtest"
+      ? (cachedResult?.backtest_stats ?? null)
+      : (cachedResult?.lookup_stats ?? null);
 
   const hasAnyAlert = events
     ? events.warrant || events.secondary_offer || events.earnings_near ||
@@ -102,20 +118,58 @@ export default function StockDetailPage() {
                 </span>
               </>
             )}
+            {/* 勝率モード切替（コンパクト） */}
+            {hit?.conditions_matched.length ? (
+              <div className="flex rounded overflow-hidden border border-gray-700 text-xs ml-2">
+                <button
+                  onClick={() => setWinrateMode("lookup")}
+                  className={clsx(
+                    "px-2 py-0.5 transition-colors",
+                    winrateMode === "lookup"
+                      ? "bg-blue-700 text-white"
+                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  )}
+                >
+                  理論値
+                </button>
+                <button
+                  onClick={() => setWinrateMode("backtest")}
+                  className={clsx(
+                    "px-2 py-0.5 transition-colors border-l border-gray-700",
+                    winrateMode === "backtest"
+                      ? "bg-blue-700 text-white"
+                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  )}
+                >
+                  BT
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-0.5">
-            {/* ヒット条件 */}
+            {/* ヒット条件（確率%付き） */}
             {hit?.conditions_matched.map((key) => {
               const isLong = LONG_CONDITIONS.includes(key as any);
+              const stat = conditionStats?.[key];
+              const pct = stat?.win_rate != null ? Math.round(stat.win_rate * 100) : null;
+              const showNoBt = winrateMode === "backtest" && cachedResult?.backtest_stats == null;
               return (
                 <span
                   key={key}
                   className={clsx(
-                    "text-xs px-1.5 py-0.5 rounded font-semibold",
+                    "text-xs px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-1",
                     isLong ? "bg-emerald-800 text-emerald-200" : "bg-rose-800 text-rose-200"
                   )}
                 >
                   {CONDITION_LABELS[key as keyof typeof CONDITION_LABELS] ?? key}
+                  {pct != null && (
+                    <span className={clsx("font-semibold", winrateColor(stat!.win_rate!))}>
+                      {pct}%
+                    </span>
+                  )}
+                  {showNoBt && (
+                    <span className="text-gray-500 font-normal">?%</span>
+                  )}
                 </span>
               );
             })}
@@ -145,6 +199,11 @@ export default function StockDetailPage() {
               >
                 {eventsLoading ? "調査中…" : eventsError ? "再試行" : "注意情報を調べる"}
               </button>
+            )}
+
+            {/* バックテストデータなし注記 */}
+            {winrateMode === "backtest" && cachedResult?.backtest_stats == null && (
+              <span className="text-xs text-gray-600">（BTデータなし: スクリーナー画面で計算してください）</span>
             )}
 
             {/* 指数連動性 */}

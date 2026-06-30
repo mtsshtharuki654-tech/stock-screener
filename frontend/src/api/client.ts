@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ScreenRequest, ScreenResponse, ChartData, CorporateEvents } from "../types";
+import type { ScreenRequest, ScreenResponse, ChartData, CorporateEvents, ConditionStat } from "../types";
 
 const api = axios.create({ baseURL: "/api", timeout: 30_000 });
 
@@ -78,4 +78,62 @@ export async function checkHealth(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export interface WinrateStatus {
+  has_cache: boolean;
+  cached_at: string | null;
+  stats: Record<string, ConditionStat> | null;
+}
+
+export async function fetchWinrateStatus(): Promise<WinrateStatus> {
+  const { data } = await api.get<WinrateStatus>("/winrate/status");
+  return data;
+}
+
+export function streamWinrateCompute(
+  onProgress: (msg: string, pct: number, elapsed: number, eta: number | null) => void,
+  onResult: (stats: Record<string, ConditionStat>) => void,
+  onError: (msg: string) => void,
+): () => void {
+  const ctrl = new AbortController();
+
+  fetch(`${SSE_BASE}/api/winrate/compute`, {
+    method: "POST",
+    headers: { Accept: "text/event-stream" },
+    signal: ctrl.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        onError(`サーバーエラー (${res.status})`);
+        return;
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          try {
+            const payload = JSON.parse(line.slice(5).trim());
+            if (payload.type === "progress")
+              onProgress(payload.message, payload.pct ?? 0, payload.elapsed ?? 0, payload.eta ?? null);
+            else if (payload.type === "result")
+              onResult(payload.stats as Record<string, ConditionStat>);
+            else if (payload.type === "error")
+              onError(payload.message);
+          } catch {}
+        }
+      }
+    })
+    .catch((e) => {
+      if (e?.name !== "AbortError") onError(e?.message ?? "通信エラー");
+    });
+
+  return () => ctrl.abort();
 }

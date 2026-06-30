@@ -9,10 +9,11 @@ import pandas as pd
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
-from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot, CorporateEvents
+from app.models.screen import ScreenRequest, ScreenResponse, ScreenHit, MASnapshot, CorporateEvents, ConditionStat
 from app.core import data_pipeline as dp, screener as sc
 from app.core.corporate_events import get_corporate_events
 from app.core.index_correlation import get_correlation_for_stock
+from app.core import backtest as bt
 
 router = APIRouter()
 JST = timezone(timedelta(hours=9))
@@ -229,11 +230,20 @@ async def run_screen(req: ScreenRequest):
             return
 
         duration_ms = int((time.monotonic() - t0) * 1000)
+
+        lookup_raw = bt.get_lookup_stats()
+        lookup_stats = {k: ConditionStat(**v) for k, v in lookup_raw.items()}
+
+        backtest_raw = bt.load_backtest_cache()
+        backtest_stats = {k: ConditionStat(**v) for k, v in backtest_raw.items()} if backtest_raw else None
+
         response = ScreenResponse(
             screened_at=datetime.now(JST),
             total_universe=total_universe,
             hits=hits,
             duration_ms=duration_ms,
+            lookup_stats=lookup_stats,
+            backtest_stats=backtest_stats,
         )
         yield {"data": json.dumps(
             _clean_nans({"type": "result", "pct": 100, "data": response.model_dump(mode="json")}),

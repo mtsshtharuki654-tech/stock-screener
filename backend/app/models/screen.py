@@ -3,6 +3,12 @@ from typing import Literal, Optional
 from datetime import datetime
 
 
+class ConditionStat(BaseModel):
+    win_rate: Optional[float] = None  # None = サンプル不足またはルックアップ未定義
+    n: Optional[int] = None           # サンプル数（ルックアップモードではNone）
+    source: Literal["backtest", "lookup"] = "lookup"
+
+
 ConditionKey = Literal[
     "jump_dai", "kahanshin", "ppp_pullback", "weekly_ma20_bounce",
     "n_shape", "dow_long_reversal",
@@ -76,3 +82,5 @@ class ScreenResponse(BaseModel):
     total_universe: int
     hits: list[ScreenHit]
     duration_ms: int
+    lookup_stats: dict[str, ConditionStat] = Field(default_factory=dict)
+    backtest_stats: Optional[dict[str, ConditionStat]] = None

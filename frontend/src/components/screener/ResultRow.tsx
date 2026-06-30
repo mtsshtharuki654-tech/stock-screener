@@ -1,12 +1,13 @@
 import { useState } from "react";
 import clsx from "clsx";
-import type { CorporateEvents, ScreenHit } from "../../types";
+import type { ConditionStat, CorporateEvents, ScreenHit } from "../../types";
 import { CONDITION_LABELS, LONG_CONDITIONS } from "../../types";
 import { fetchEvents } from "../../api/client";
 
 interface Props {
   hit: ScreenHit;
   onClick: () => void;
+  conditionStats?: Record<string, ConditionStat>;
 }
 
 function EventBadges({ events }: { events: CorporateEvents }) {
@@ -52,7 +53,14 @@ function CorrBadge({ corr }: { corr: ScreenHit["index_correlation"] }) {
   );
 }
 
-export default function ResultRow({ hit, onClick }: Props) {
+function winrateColor(rate: number): string {
+  if (rate >= 0.70) return "text-emerald-300";
+  if (rate >= 0.65) return "text-green-400";
+  if (rate >= 0.60) return "text-yellow-400";
+  return "text-gray-400";
+}
+
+export default function ResultRow({ hit, onClick, conditionStats }: Props) {
   const [events, setEvents] = useState<CorporateEvents | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -116,20 +124,27 @@ export default function ResultRow({ hit, onClick }: Props) {
         </div>
       </td>
 
-      {/* ヒット条件 */}
+      {/* ヒット条件（確率%付き） */}
       <td className="px-3 py-2">
         <div className="flex flex-wrap gap-1">
           {hit.conditions_matched.map((key) => {
             const isL = LONG_CONDITIONS.includes(key as any);
+            const stat = conditionStats?.[key];
+            const pct = stat?.win_rate != null ? Math.round(stat.win_rate * 100) : null;
             return (
               <span
                 key={key}
                 className={clsx(
-                  "text-xs px-1.5 py-0.5 rounded",
+                  "text-xs px-1.5 py-0.5 rounded inline-flex items-center gap-1",
                   isL ? "bg-emerald-900 text-emerald-300" : "bg-rose-900 text-rose-300"
                 )}
               >
                 {CONDITION_LABELS[key as keyof typeof CONDITION_LABELS] ?? key}
+                {pct != null && (
+                  <span className={clsx("font-semibold", winrateColor(stat!.win_rate!))}>
+                    {pct}%
+                  </span>
+                )}
               </span>
             );
           })}

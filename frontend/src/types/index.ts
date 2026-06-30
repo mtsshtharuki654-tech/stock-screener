@@ -116,9 +116,19 @@ export interface ScreenRequest {
   segments: ("Prime" | "Growth")[];
 }
 
+export interface ConditionStat {
+  win_rate: number | null;
+  n: number | null;
+  source: "backtest" | "lookup";
+}
+
+export type WinrateMode = "lookup" | "backtest";
+
 export interface ScreenResponse {
   screened_at: string;
   total_universe: number;
   hits: ScreenHit[];
   duration_ms: number;
+  lookup_stats: Record<string, ConditionStat>;
+  backtest_stats: Record<string, ConditionStat> | null;
 }
