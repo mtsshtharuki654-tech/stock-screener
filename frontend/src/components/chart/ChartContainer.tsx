@@ -44,12 +44,12 @@ export default function ChartContainer({ data, showCandles, height = 420 }: Prop
     });
 
     const candle = chart.addCandlestickSeries({
-      upColor:        "#22c55e",   // 陽線（緑）
-      downColor:      "#ef4444",   // 陰線（赤）
-      borderUpColor:  "#22c55e",
-      borderDownColor:"#ef4444",
-      wickUpColor:    "#22c55e",
-      wickDownColor:  "#ef4444",
+      upColor:        "#ef4444",   // 陽線（赤）
+      downColor:      "#22c55e",   // 陰線（緑）
+      borderUpColor:  "#ef4444",
+      borderDownColor:"#22c55e",
+      wickUpColor:    "#ef4444",
+      wickDownColor:  "#22c55e",
     });
 
     const ma5 = chart.addLineSeries({
@@ -125,7 +125,7 @@ export default function ChartContainer({ data, showCandles, height = 420 }: Prop
       data.candles.map((c) => ({
         time: c.time as unknown as string,
         value: c.volume,
-        color: c.close >= c.open ? "#22c55e44" : "#ef444444",
+        color: c.close >= c.open ? "#ef444444" : "#22c55e44",
       }))
     );
 
