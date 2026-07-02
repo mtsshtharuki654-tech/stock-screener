@@ -44,26 +44,26 @@ export default function ChartContainer({ data, showCandles, height = 420 }: Prop
     });
 
     const candle = chart.addCandlestickSeries({
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      borderUpColor: "#22c55e",
-      borderDownColor: "#ef4444",
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
+      upColor:        "#22c55e",   // 陽線（緑）
+      downColor:      "#ef4444",   // 陰線（赤）
+      borderUpColor:  "#22c55e",
+      borderDownColor:"#ef4444",
+      wickUpColor:    "#22c55e",
+      wickDownColor:  "#ef4444",
     });
 
     const ma5 = chart.addLineSeries({
-      color: "#3b82f6",
+      color: "#3b82f6",   // 青
       lineWidth: 2,
       priceLineVisible: false,
     });
     const ma20 = chart.addLineSeries({
-      color: "#f97316",
+      color: "#f97316",   // オレンジ
       lineWidth: 2,
       priceLineVisible: false,
     });
     const ma60 = chart.addLineSeries({
-      color: "#ef4444",
+      color: "#a855f7",   // 紫（陰線の赤と区別）
       lineWidth: 2,
       priceLineVisible: false,
     });

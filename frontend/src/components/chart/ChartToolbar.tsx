@@ -49,7 +49,7 @@ export default function ChartToolbar({
       <div className="ml-auto flex items-center gap-3 text-xs text-gray-400">
         <span><span className="inline-block w-3 h-0.5 bg-blue-500 mr-1" />5MA</span>
         <span><span className="inline-block w-3 h-0.5 bg-orange-500 mr-1" />20MA</span>
-        <span><span className="inline-block w-3 h-0.5 bg-red-500 mr-1" />60MA</span>
+        <span><span className="inline-block w-3 h-0.5 bg-purple-500 mr-1" />60MA</span>
       </div>
     </div>
   );
