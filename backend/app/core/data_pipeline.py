@@ -132,6 +132,24 @@ def resample_to_weekly(daily_df: pd.DataFrame) -> pd.DataFrame:
     return weekly.reset_index()
 
 
+def resample_to_monthly(daily_df: pd.DataFrame) -> pd.DataFrame:
+    df = daily_df.copy().set_index("Date")
+    try:
+        resampled = df.resample("ME")   # pandas 2.2+
+    except ValueError:
+        resampled = df.resample("M")    # pandas 旧バージョン
+    monthly = resampled.agg({
+        "O": "first", "H": "max", "L": "min",
+        "AdjC": "last", "AdjVo": "sum",
+    }).dropna(subset=["AdjC"])
+    monthly = monthly.rename(columns={
+        "O": "Open", "H": "High", "L": "Low",
+        "AdjC": "Close", "AdjVo": "Volume",
+    })
+    monthly.index.name = "Date"
+    return monthly.reset_index()
+
+
 def add_ma_columns(df: pd.DataFrame, price_col: str = "Close") -> pd.DataFrame:
     df = df.copy()
     for p in [5, 20, 60]:

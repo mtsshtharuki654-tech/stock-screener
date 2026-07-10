@@ -5,7 +5,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core import yfinance_client as yfc
-from app.core.data_pipeline import add_ma_columns, resample_to_weekly, DAILY_CACHE, UNIVERSE_CACHE
+from app.core.data_pipeline import add_ma_columns, resample_to_weekly, resample_to_monthly, DAILY_CACHE, UNIVERSE_CACHE
 from app.models.stock import ChartData, OHLCV, MASet, MAPoint
 
 router = APIRouter()
@@ -33,12 +33,12 @@ def _load_from_cache(code: str) -> pd.DataFrame:
 @router.get("/stocks/{code}/chart", response_model=ChartData)
 async def get_chart(
     code: str,
-    timeframe: str = Query("weekly", pattern="^(weekly|daily)$"),
-    periods: int = Query(200, ge=20, le=500),
+    timeframe: str = Query("weekly", pattern="^(weekly|daily|monthly)$"),
+    periods: int = Query(200, ge=20, le=1000),
 ) -> ChartData:
-    # yfinanceで最新データ取得（MA60週足計算に500日分確保）
+    # yfinanceで最新データ取得（月足60本≒5年分を確保するため1500日）
     end = datetime.now(JST)
-    start = end - timedelta(days=500)
+    start = end - timedelta(days=1500)
     daily_df = await asyncio.to_thread(yfc.fetch_single, code, start, end)
     if daily_df.empty:
         daily_df = _load_from_cache(code)
@@ -47,8 +47,16 @@ async def get_chart(
 
     daily_df = daily_df.sort_values("Date").reset_index(drop=True)
 
-    # V2 uses AdjC/AdjVo; resample_to_weekly renames them to Close/Volume
-    if timeframe == "weekly":
+    # V2 uses AdjC/AdjVo; resample functions rename them to Close/Volume
+    if timeframe == "monthly":
+        df = resample_to_monthly(daily_df)
+        df = add_ma_columns(df, price_col="Close")
+        price_col = "Close"
+        open_col = "Open"
+        high_col = "High"
+        low_col = "Low"
+        vol_col = "Volume"
+    elif timeframe == "weekly":
         df = resample_to_weekly(daily_df)
         df = add_ma_columns(df, price_col="Close")
         price_col = "Close"

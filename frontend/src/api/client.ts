@@ -57,7 +57,7 @@ export function streamScreen(
 
 export async function fetchChart(
   code: string,
-  timeframe: "weekly" | "daily",
+  timeframe: "weekly" | "daily" | "monthly",
   periods = 200
 ): Promise<ChartData> {
   const { data } = await api.get<ChartData>(`/stocks/${code}/chart`, {

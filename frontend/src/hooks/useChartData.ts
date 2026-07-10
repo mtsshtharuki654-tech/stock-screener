@@ -3,7 +3,7 @@ import { fetchChart } from "../api/client";
 
 export function useChartData(
   code: string | null,
-  timeframe: "weekly" | "daily",
+  timeframe: "weekly" | "daily" | "monthly",
   periods = 200
 ) {
   return useQuery({

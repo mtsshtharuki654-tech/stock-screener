@@ -25,6 +25,6 @@ class MASet(BaseModel):
 class ChartData(BaseModel):
     code: str
     name: str
-    timeframe: Literal["weekly", "daily"]
+    timeframe: Literal["weekly", "daily", "monthly"]
     candles: list[OHLCV]
     ma: MASet

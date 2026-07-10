@@ -21,7 +21,7 @@ export interface MASet {
 export interface ChartData {
   code: string;
   name: string;
-  timeframe: "weekly" | "daily";
+  timeframe: "weekly" | "daily" | "monthly";
   candles: OHLCV[];
   ma: MASet;
 }
