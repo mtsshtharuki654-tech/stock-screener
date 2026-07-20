@@ -217,6 +217,7 @@ async def run_screen(req: ScreenRequest):
             lambda: dp.compute_all_mas(daily_all), abandon_on_cancel=True
         )
 
+        yield {"data": json.dumps(_make_progress(t0, 92, "候補銘柄を準備中..."), ensure_ascii=False)}
         price_pass = dp.filter_by_price(daily_ma, req.max_price)
         volume_pass = dp.filter_by_volume(weekly_ma, req.min_volume)
         candidate_codes = price_pass & volume_pass & set(universe_df["Code"].astype(str))

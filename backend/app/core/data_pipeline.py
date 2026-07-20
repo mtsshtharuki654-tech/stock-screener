@@ -205,15 +205,15 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
 
 def filter_by_volume(weekly_all: pd.DataFrame, min_daily_volume: int, weeks: int = 4) -> set[str]:
-    passing = set()
-    for code, grp in weekly_all.groupby("Code"):
-        if len(grp) < 2:
-            continue
-        n = min(weeks, len(grp))
-        avg_daily = grp["Volume"].iloc[-n:].mean() / 5
-        if avg_daily >= min_daily_volume:
-            passing.add(code)
-    return passing
+    if weekly_all.empty:
+        return set()
+
+    recent = weekly_all.sort_values(["Code", "Date"]).groupby("Code").tail(weeks)
+    grouped = recent.groupby("Code")["Volume"]
+    counts = grouped.size()
+    avg_daily = grouped.mean() / 5
+    passing = avg_daily[(counts >= 2) & (avg_daily >= min_daily_volume)]
+    return set(passing.index.astype(str))
 
 
 def filter_by_price(daily_all: pd.DataFrame, max_price: float) -> set[str]:
@@ -226,6 +226,29 @@ def build_stock_frames(
     weekly_all: pd.DataFrame,
     codes: set[str],
 ) -> dict[str, dict[str, pd.DataFrame]]:
+    if not codes:
+        return {}
+
+    code_set = set(map(str, codes))
+    daily = daily_all[daily_all["Code"].astype(str).isin(code_set)].sort_values(["Code", "Date"])
+    weekly = weekly_all[weekly_all["Code"].astype(str).isin(code_set)].sort_values(["Code", "Date"])
+    daily_groups = {
+        str(code): grp.reset_index(drop=True)
+        for code, grp in daily.groupby("Code", sort=False)
+    }
+    weekly_groups = {
+        str(code): grp.reset_index(drop=True)
+        for code, grp in weekly.groupby("Code", sort=False)
+    }
+
+    result = {}
+    for code in code_set:
+        d = daily_groups.get(code)
+        w = weekly_groups.get(code)
+        if d is not None and w is not None and len(d) >= 10 and len(w) >= 3:
+            result[code] = {"daily": d, "weekly": w}
+    return result
+
     result = {}
     for code in codes:
         d = daily_all[daily_all["Code"] == code].sort_values("Date").reset_index(drop=True)
