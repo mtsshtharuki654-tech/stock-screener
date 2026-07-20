@@ -160,14 +160,24 @@ def add_ma_columns(df: pd.DataFrame, price_col: str = "Close") -> pd.DataFrame:
     return df
 
 
-def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def compute_all_mas(
+    daily_all: pd.DataFrame,
+    progress_cb: "Callable[[str, float], None] | None" = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def report(message: str, pct: float) -> None:
+        if progress_cb:
+            progress_cb(message, pct)
+
+    report("移動平均を計算中...（日足データを並べ替え）", 87.2)
     daily = daily_all.sort_values(["Code", "Date"]).copy()
 
     for p in [5, 20, 60]:
         min_p = max(p // 2, 1)
+        report(f"移動平均を計算中...（日足 {p}MA）", 87.5 + p / 60 * 1.5)
         daily[f"MA{p}"] = daily.groupby("Code")["AdjC"].transform(
             lambda x, _p=p, _m=min_p: x.rolling(_p, min_periods=_m).mean()
         )
+        report(f"移動平均を計算中...（日足 {p}MAの傾き）", 89.0 + p / 60 * 1.0)
         daily[f"MA{p}_slope"] = daily.groupby("Code")[f"MA{p}"].transform(
             lambda x: x.pct_change(fill_method=None)
         )
@@ -181,6 +191,7 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     # 週足リサンプリング - groupbyベクトル化（銘柄ごとループより大幅高速）
     # 各日付を週末金曜日に丸めてからgroupby集計
     week_end = daily["Date"] + pd.to_timedelta((4 - daily["Date"].dt.dayofweek) % 7, unit="D")
+    report("移動平均を計算中...（週足に集計）", 90.5)
     weekly_raw = (
         daily.assign(Date=week_end)
         .groupby(["Code", "Date"], as_index=False)
@@ -194,13 +205,16 @@ def compute_all_mas(daily_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     weekly_all = weekly_raw.sort_values(["Code", "Date"])
     for p in [5, 20, 60]:
         min_p = max(p // 2, 1)
+        report(f"移動平均を計算中...（週足 {p}MA）", 91.0 + p / 60 * 1.0)
         weekly_all[f"MA{p}"] = weekly_all.groupby("Code")["Close"].transform(
             lambda x, _p=p, _m=min_p: x.rolling(_p, min_periods=_m).mean()
         )
+        report(f"移動平均を計算中...（週足 {p}MAの傾き）", 92.0 + p / 60 * 1.0)
         weekly_all[f"MA{p}_slope"] = weekly_all.groupby("Code")[f"MA{p}"].transform(
             lambda x: x.pct_change(fill_method=None)
         )
 
+    report("移動平均を計算中...（完了）", 93.0)
     return daily, weekly_all
 
 

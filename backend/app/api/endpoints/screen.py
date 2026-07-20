@@ -213,13 +213,39 @@ async def run_screen(req: ScreenRequest):
 
         # ---- ステップ3: MA計算 ----
         yield {"data": json.dumps(_make_progress(t0, _WEIGHT_UNIVERSE + _WEIGHT_OHLCV, "移動平均を計算中..."), ensure_ascii=False)}
-        daily_ma, weekly_ma = await anyio.to_thread.run_sync(
-            lambda: dp.compute_all_mas(daily_all), abandon_on_cancel=True
+        ma_queue: asyncio.Queue = asyncio.Queue()
+
+        def on_ma_progress(message: str, pct: float):
+            loop.call_soon_threadsafe(ma_queue.put_nowait, _make_progress(t0, pct, message))
+
+        ma_task = asyncio.create_task(
+            anyio.to_thread.run_sync(
+                lambda: dp.compute_all_mas(daily_all, on_ma_progress),
+                abandon_on_cancel=True,
+            )
         )
+
+        while not ma_task.done():
+            try:
+                payload = await asyncio.wait_for(ma_queue.get(), timeout=1.0)
+                yield {"data": json.dumps(payload, ensure_ascii=False)}
+            except asyncio.TimeoutError:
+                yield {"data": json.dumps(_make_progress(t0, 88, "移動平均を計算中...（処理継続中）"), ensure_ascii=False)}
+
+        while not ma_queue.empty():
+            yield {"data": json.dumps(ma_queue.get_nowait(), ensure_ascii=False)}
+
+        try:
+            daily_ma, weekly_ma = ma_task.result()
+        except Exception as e:
+            yield {"data": json.dumps({"type": "error", "message": f"移動平均の計算エラー: {str(e)}"}, ensure_ascii=False)}
+            return
 
         yield {"data": json.dumps(_make_progress(t0, 92, "候補銘柄を準備中..."), ensure_ascii=False)}
         price_pass = dp.filter_by_price(daily_ma, req.max_price)
+        yield {"data": json.dumps(_make_progress(t0, 93, "候補銘柄を準備中...（出来高フィルタ）"), ensure_ascii=False)}
         volume_pass = dp.filter_by_volume(weekly_ma, req.min_volume)
+        yield {"data": json.dumps(_make_progress(t0, 94, "候補銘柄を準備中...（銘柄別データを作成）"), ensure_ascii=False)}
         candidate_codes = price_pass & volume_pass & set(universe_df["Code"].astype(str))
         total_universe = len(set(universe_df["Code"].astype(str)))
         stock_frames = dp.build_stock_frames(daily_ma, weekly_ma, candidate_codes)
