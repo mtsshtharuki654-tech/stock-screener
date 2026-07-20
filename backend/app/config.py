@@ -2,9 +2,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
 
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+
 class Settings(BaseSettings):
     jquants_api_key: str = ""
-    cache_dir: Path = Path("./data")
+    cache_dir: Path = BACKEND_DIR / "data"
     allowed_origins: list[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176", "http://localhost:3000"]
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

@@ -30,6 +30,7 @@ export function streamScreen(
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
+      let completed = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -42,11 +43,18 @@ export function streamScreen(
             const payload = JSON.parse(line.slice(5).trim());
             if (payload.type === "progress")
               onProgress(payload.message, payload.pct ?? 0, payload.elapsed ?? 0, payload.eta ?? null);
-            else if (payload.type === "result") onResult(payload.data as ScreenResponse);
-            else if (payload.type === "error") onError(payload.message);
+            else if (payload.type === "result") {
+              completed = true;
+              onResult(payload.data as ScreenResponse);
+            }
+            else if (payload.type === "error") {
+              completed = true;
+              onError(payload.message);
+            }
           } catch {}
         }
       }
+      if (!completed) onError("スクリーニング結果を受信できませんでした。もう一度実行してください。");
     })
     .catch((e) => {
       if (e?.name !== "AbortError") onError(e?.message ?? "通信エラー");
