@@ -99,29 +99,29 @@ export default function ChartContainer({ data, showCandles, height = 420 }: Prop
 
   // データ更新
   useEffect(() => {
-    if (!candleRef.current || !ma5Ref.current) return;
+    if (!candleRef.current || !ma5Ref.current || !chartRef.current) return;
 
-    candleRef.current.setData(
-      data.candles.map((c) => ({
-        time: c.time as unknown as string,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-      }))
-    );
+    const candleSeries = data.candles.map((c) => ({
+      time: c.time as unknown as string,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+
+    candleRef.current.setData(candleSeries);
 
     ma5Ref.current.setData(
       data.ma.ma5.map((p) => ({ time: p.time as unknown as string, value: p.value }))
     );
-    ma20Ref.current!.setData(
+    ma20Ref.current?.setData(
       data.ma.ma20.map((p) => ({ time: p.time as unknown as string, value: p.value }))
     );
-    ma60Ref.current!.setData(
+    ma60Ref.current?.setData(
       data.ma.ma60.map((p) => ({ time: p.time as unknown as string, value: p.value }))
     );
 
-    volRef.current!.setData(
+    volRef.current?.setData(
       data.candles.map((c) => ({
         time: c.time as unknown as string,
         value: c.volume,
@@ -129,7 +129,7 @@ export default function ChartContainer({ data, showCandles, height = 420 }: Prop
       }))
     );
 
-    chartRef.current?.timeScale().fitContent();
+    chartRef.current.timeScale().fitContent();
   }, [data]);
 
   // 裸チャートトグル

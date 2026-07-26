@@ -46,6 +46,7 @@ export interface ScreenerState {
   isFromCache: boolean;
   isPending: boolean;
   progress: string;
+  progressLog: string[];
   pct: number;
   elapsed: number;
   eta: number | null;
@@ -60,6 +61,7 @@ export function useScreener() {
       isFromCache: cached !== null,
       isPending: false,
       progress: "",
+      progressLog: [],
       pct: 0,
       elapsed: 0,
       eta: null,
@@ -76,7 +78,7 @@ export function useScreener() {
 
   const mutate = useCallback((req: ScreenRequest) => {
     cancelRef.current?.();
-    setState({ data: null, isFromCache: false, isPending: true, progress: "接続中...", pct: 0, elapsed: 0, eta: null, error: null });
+    setState({ data: null, isFromCache: false, isPending: true, progress: "接続中...", progressLog: [], pct: 0, elapsed: 0, eta: null, error: null });
 
     const cancel = streamScreen(
       req,
@@ -84,9 +86,9 @@ export function useScreener() {
       (res) => {
         cacheHits(res.hits);
         saveResult(res);
-        setState({ data: res, isFromCache: false, isPending: false, progress: "", pct: 100, elapsed: 0, eta: null, error: null });
+        setState({ data: res, isFromCache: false, isPending: false, progress: "", progressLog: [], pct: 100, elapsed: 0, eta: null, error: null });
       },
-      (msg) => setState({ data: null, isFromCache: false, isPending: false, progress: "", pct: 0, elapsed: 0, eta: null, error: new Error(msg) }),
+      (msg) => setState({ data: null, isFromCache: false, isPending: false, progress: "", progressLog: [], pct: 0, elapsed: 0, eta: null, error: new Error(msg) }),
     );
     cancelRef.current = cancel;
   }, []);

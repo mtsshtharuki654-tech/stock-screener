@@ -1,11 +1,15 @@
 import axios from "axios";
 import type { ScreenRequest, ScreenResponse, ChartData, CorporateEvents, ConditionStat } from "../types";
 
-const api = axios.create({ baseURL: "/api", timeout: 30_000 });
+const API_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api`
+  : "/api";
+
+const api = axios.create({ baseURL: API_BASE, timeout: 30_000 });
 
 // Viteプロキシ経由だとSSEが1イベント後にブロックされるため、
 // 開発環境ではバックエンドに直接接続する。
-const SSE_BASE = import.meta.env.VITE_API_URL ?? "";
+const SSE_BASE = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, "") : "";
 
 export function streamScreen(
   req: ScreenRequest,
@@ -31,6 +35,7 @@ export function streamScreen(
       const decoder = new TextDecoder();
       let buf = "";
       let completed = false;
+      let sawData = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -38,9 +43,12 @@ export function streamScreen(
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.startsWith("data:")) continue;
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          sawData = true;
+          const raw = trimmed.slice(5).trim();
           try {
-            const payload = JSON.parse(line.slice(5).trim());
+            const payload = JSON.parse(raw);
             if (payload.type === "progress")
               onProgress(payload.message, payload.pct ?? 0, payload.elapsed ?? 0, payload.eta ?? null);
             else if (payload.type === "result") {
@@ -51,10 +59,15 @@ export function streamScreen(
               completed = true;
               onError(payload.message);
             }
-          } catch {}
+            else {
+              onError(`予期しないレスポンス: ${raw}`);
+            }
+          } catch (err) {
+            onError(`レスポンス解析に失敗しました: ${raw}`);
+          }
         }
       }
-      if (!completed) onError("スクリーニング結果を受信できませんでした。もう一度実行してください。");
+      if (!completed && !sawData) onError("スクリーニング結果を受信できませんでした。もう一度実行してください。");
     })
     .catch((e) => {
       if (e?.name !== "AbortError") onError(e?.message ?? "通信エラー");
