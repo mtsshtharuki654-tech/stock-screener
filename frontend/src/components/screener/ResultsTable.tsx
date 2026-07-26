@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { MarketEnvironment, ScreenResponse } from "../../types";
 import ResultRow from "./ResultRow";
 import clsx from "clsx";
@@ -13,6 +13,10 @@ interface Props {
   elapsed: number;
   eta: number | null;
   error: Error | null;
+  favoritesOnly?: boolean;
+  favoriteCodes?: string[];
+  showRemoveButtons?: boolean;
+  onRemoveFavorite?: (code: string) => void;
 }
 
 const HEADERS = [
@@ -44,7 +48,7 @@ function formatTime(secs: number): string {
   return s > 0 ? `${m}分${s}秒` : `${m}分`;
 }
 
-export default function ResultsTable({ result, isFromCache, onClear, isLoading, progress, pct, elapsed, eta, error }: Props) {
+export default function ResultsTable({ result, isFromCache, onClear, isLoading, progress, pct, elapsed, eta, error, favoritesOnly = false, favoriteCodes = [], showRemoveButtons = false, onRemoveFavorite }: Props) {
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -95,6 +99,9 @@ export default function ResultsTable({ result, isFromCache, onClear, isLoading, 
   }
 
   const conditionStats = result.lookup_stats ?? null;
+  const visibleHits = favoritesOnly
+    ? result.hits.filter((hit) => favoriteCodes.includes(hit.code))
+    : result.hits;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -116,12 +123,20 @@ export default function ResultsTable({ result, isFromCache, onClear, isLoading, 
         <span>ユニバース: <strong className="text-white">{result.total_universe.toLocaleString()}</strong> 銘柄</span>
         <span>ヒット: <strong className="text-blue-400">{result.hits.length}</strong> 銘柄</span>
         <span>処理時間: {(result.duration_ms / 1000).toFixed(1)}秒</span>
-        <span className="ml-auto text-xs text-gray-600">{new Date(result.screened_at).toLocaleString("ja-JP")}</span>
+        {favoritesOnly && (
+          <span className="text-yellow-400">お気に入り絞り込み中</span>
+        )}
+        <div className="ml-auto flex items-center gap-3">
+          <Link to="/favorites" className="text-xs text-yellow-400 hover:text-yellow-300">
+            お気に入り一覧
+          </Link>
+          <span className="text-xs text-gray-600">{new Date(result.screened_at).toLocaleString("ja-JP")}</span>
+        </div>
       </div>
 
-      {result.hits.length === 0 ? (
+      {visibleHits.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-gray-600">
-          <p>条件にヒットする銘柄が見つかりませんでした</p>
+          <p>{favoritesOnly ? "お気に入り銘柄が見つかりませんでした" : "条件にヒットする銘柄が見つかりませんでした"}</p>
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
@@ -136,12 +151,16 @@ export default function ResultsTable({ result, isFromCache, onClear, isLoading, 
               </tr>
             </thead>
             <tbody>
-              {result.hits.map((hit) => (
+              {visibleHits.map((hit) => (
                 <ResultRow
                   key={hit.code}
                   hit={hit}
                   onClick={() => navigate(`/stock/${hit.code}`, { state: { hit } })}
                   conditionStats={conditionStats ?? undefined}
+                  favoritesOnly={favoritesOnly}
+                  favoriteCodes={favoriteCodes}
+                  showRemoveButton={showRemoveButtons}
+                  onRemoveFavorite={onRemoveFavorite}
                 />
               ))}
             </tbody>

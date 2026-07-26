@@ -9,6 +9,10 @@ interface Props {
   hit: ScreenHit;
   onClick: () => void;
   conditionStats?: Record<string, ConditionStat>;
+  favoritesOnly?: boolean;
+  favoriteCodes?: string[];
+  showRemoveButton?: boolean;
+  onRemoveFavorite?: (code: string) => void;
 }
 
 function earningsBadgeColor(days: number): string {
@@ -110,7 +114,7 @@ function WinrateCell({ hit, conditionStats }: { hit: ScreenHit; conditionStats?:
   );
 }
 
-export default function ResultRow({ hit, onClick, conditionStats }: Props) {
+export default function ResultRow({ hit, onClick, conditionStats, favoritesOnly = false, favoriteCodes = [], showRemoveButton = false, onRemoveFavorite }: Props) {
   const [events, setEvents] = useState<CorporateEvents | null>(null);
   const { isFavorite, toggleFavorite } = useFavorites();
   const favorite = isFavorite(hit.code);
@@ -151,6 +155,18 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
           >
             {favorite ? "★" : "☆"}
           </button>
+          {showRemoveButton && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveFavorite?.(hit.code);
+              }}
+              className="rounded border border-gray-700 px-1.5 py-0.5 text-[10px] text-gray-400 hover:border-red-600 hover:text-red-300"
+            >
+              削除
+            </button>
+          )}
         </div>
       </td>
 
