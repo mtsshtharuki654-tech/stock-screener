@@ -148,40 +148,66 @@ def check_weekly_ma20_bounce(weekly: pd.DataFrame, _daily: pd.DataFrame = None) 
 
 def check_n_shape(daily: pd.DataFrame, _weekly: pd.DataFrame = None) -> bool:
     """
-    N大: 直近20本以内にGC、その後MA20に接近するが割れず、現在再上昇。
+    N大（改善版）: ゴールデンクロス後に一度MA20近辺へ戻りつつ、再度上昇している局面を拾う。
+    これまでの「GC後にMA20に接近するだけ」より、N字の実際の形に近い条件に調整する。
     """
     if len(daily) < 25:
         return False
 
     window = daily.iloc[-21:]
+    if "MA5" not in window.columns or "MA20" not in window.columns:
+        return False
+
     ma5 = window["MA5"].values
     ma20 = window["MA20"].values
 
-    # GC（MA5がMA20を下から上に抜いた）を検索
+    # 1) 直近20本以内にGCが起きていること
     gc_idx = None
     for i in range(1, len(window) - 2):
-        if ma5[i - 1] < ma20[i - 1] and ma5[i] >= ma20[i]:
-            gc_idx = i
-            break
+        prev_ma5 = ma5[i - 1]
+        prev_ma20 = ma20[i - 1]
+        cur_ma5 = ma5[i]
+        cur_ma20 = ma20[i]
+        if pd.notna(prev_ma5) and pd.notna(prev_ma20) and pd.notna(cur_ma5) and pd.notna(cur_ma20):
+            if prev_ma5 < prev_ma20 and cur_ma5 >= cur_ma20:
+                gc_idx = i
+                break
     if gc_idx is None:
         return False
 
-    # GC後に接近（ギャップ≤3%）したが割り込まず
+    # 2) GC後の「戻り」が浅いこと（MA20に近い）
     post = window.iloc[gc_idx:]
-    for _, row in post.iterrows():
-        if pd.isna(row["MA5"]) or pd.isna(row["MA20"]):
-            continue
-        if row["MA5"] < row["MA20"]:
-            return False  # MA20を割り込んだ
+    if len(post) < 3:
+        return False
 
     gaps = ((post["MA5"] - post["MA20"]) / post["MA20"]).abs()
-    if gaps.min() > 0.03:
-        return False  # 十分に接近しなかった
-
-    # 現在MA5スロープ上向き
-    if _slope(daily, "MA5") <= 0:
+    if gaps.empty:
         return False
-    return _slope(daily, "MA60") > 0
+
+    # 直近の戻りがMA20から3%以内で、MA20を割り込んでいないこと
+    if (post["MA5"] < post["MA20"]).any():
+        # ただし、短期の一時下落は許容するが、戻りが深すぎると除外
+        if (post["MA5"] - post["MA20"]).abs().max() / post["MA20"].iloc[-1] > 0.03:
+            return False
+
+    # 3) 直近2本の陽線で再上昇していること
+    latest = daily.iloc[-1]
+    prev = daily.iloc[-2]
+    if pd.isna(latest["MA5"]) or pd.isna(latest["MA20"]):
+        return False
+    if latest["Close"] <= latest["Open"]:
+        return False
+    if prev["Close"] <= prev["Open"]:
+        return False
+
+    # 4) 直近の終値がMA20以上、かつ直近2本の高値がMA20を上回っている
+    if latest["Close"] <= latest["MA20"]:
+        return False
+    if prev["Close"] <= prev["MA20"]:
+        return False
+
+    # 5) MA5 の傾きが上向き
+    return _slope(daily, "MA5") > 0
 
 
 def check_dow_long_reversal(daily: pd.DataFrame, _weekly: pd.DataFrame = None) -> bool:
