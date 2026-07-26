@@ -36,37 +36,41 @@ def _find_local_highs(series: pd.Series, window: int = 3) -> list[int]:
 
 def check_jump_dai(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
     """
-    ジャンプ台: MA5 > MA20, MA5がMA20に接近してから陽線で反発。
+    ジャンプ台（改善版）: MA5 と MA20 の差が縮まった後、MA5 が MA20 を上に抜け、
+    直近で陽線で反発している局面を拾う。
     日足または週足で判定。
     """
     def _check(df: pd.DataFrame) -> bool:
         if len(df) < 10:
             return False
         latest = df.iloc[-1]
+        prev = df.iloc[-2]
         if latest["MA5"] <= latest["MA20"]:
             return False
 
-        # 直近5本でMA5とMA20の距離が最小になったバーを探す
         window = df.iloc[-6:-1]
         gaps = ((window["MA5"] - window["MA20"]) / window["MA20"]).abs()
         min_gap = gaps.min()
         if min_gap > 0.03:
             return False
 
-        # 現在は距離が広がり始め（MA5スロープ上向き）かつ陽線
         current_gap = abs(latest["MA5"] - latest["MA20"]) / latest["MA20"]
-        if current_gap <= min_gap:
+        if current_gap <= min_gap * 1.05:
             return False
         if _slope(df, "MA5") <= 0:
             return False
-        return latest["Close"] > latest["Open"]  # 陽線
+        if latest["Close"] <= latest["Open"]:
+            return False
+        if latest["Close"] <= prev["Close"]:
+            return False
+        return latest["Close"] > latest["MA5"]
 
     return _check(daily) or _check(weekly)
 
 
 def check_kahanshin(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
     """
-    下半身: 前バーの終値がMA5以下 → 現バーの陽線でMA5を上抜け、実体の50%以上がMA5より上。
+    下半身（改善版）: 前バーが MA5 近辺で抑えられ、今バーで MA5 を上に抜ける陽線が出ている。
     """
     def _check(df: pd.DataFrame) -> bool:
         if len(df) < 10:
@@ -80,7 +84,9 @@ def check_kahanshin(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
             return False
         if cur["Close"] <= ma5:
             return False
-        if cur["Open"] >= cur["Close"]:  # 陰線は除外
+        if cur["Close"] <= prev["Close"]:
+            return False
+        if cur["Open"] >= cur["Close"]:
             return False
         body = cur["Close"] - cur["Open"]
         if body <= 0:
@@ -93,37 +99,38 @@ def check_kahanshin(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
 
 def check_ppp_pullback(weekly: pd.DataFrame, _daily: pd.DataFrame = None) -> bool:
     """
-    PPP押し目: 週足でパーフェクトオーダー維持 + 直近3週に押し目。
+    PPP押し目（改善版）: 週足でパーフェクトオーダーが維持され、
+    直近数週の戻りが MA20 近辺にあり、今週は MA20 以上に反発している。
     """
     if len(weekly) < 10:
         return False
     latest = weekly.iloc[-1]
 
-    # パーフェクトオーダー
     if not (latest["MA5"] > latest["MA20"] > latest["MA60"]):
         return False
-    # 全線上向き
     for ma in ["MA5", "MA20", "MA60"]:
         if _slope(weekly, ma) <= 0:
             return False
 
-    # 直近3週に押し目（終値がMA20の103%以内）
     pullback_window = weekly.iloc[-4:-1]
     touched = any(
-        row["Close"] <= row["MA20"] * 1.03
+        row["Close"] <= row["MA20"] * 1.015
         for _, row in pullback_window.iterrows()
         if not pd.isna(row["MA20"])
     )
     if not touched:
         return False
 
-    # 直近安値がMA60の95%以上（暴落でない）
+    if latest["Close"] <= latest["MA20"]:
+        return False
+    if latest["Close"] <= latest["Open"]:
+        return False
     return latest["Low"] >= latest["MA60"] * 0.95
 
 
 def check_weekly_ma20_bounce(weekly: pd.DataFrame, _daily: pd.DataFrame = None) -> bool:
     """
-    週足20線反発: MA60上向き、前週安値がMA20付近、今週陽線でMA20より上。
+    週足20線反発（改善版）: MA60 が上向きで、前週安値が MA20 近辺に戻り、今週は MA20 を上に抜ける陽線で終わる。
     """
     if len(weekly) < 10:
         return False
@@ -134,15 +141,14 @@ def check_weekly_ma20_bounce(weekly: pd.DataFrame, _daily: pd.DataFrame = None) 
         return False
     if pd.isna(prev["MA20"]) or pd.isna(cur["MA20"]):
         return False
-    # 前週安値がMA20の103%以内
-    if prev["Low"] > prev["MA20"] * 1.03:
+    if prev["Low"] > prev["MA20"] * 1.01:
         return False
-    # 今週陽線かつMA20より上
     if cur["Close"] <= cur["Open"]:
         return False
     if cur["Close"] <= cur["MA20"]:
         return False
-    # 直近安値がMA60の95%以上
+    if cur["Close"] <= prev["Close"]:
+        return False
     return cur["Low"] >= cur["MA60"] * 0.95
 
 
@@ -239,12 +245,13 @@ def check_dow_long_reversal(daily: pd.DataFrame, _weekly: pd.DataFrame = None) -
 
 def check_reverse_jump_dai(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
     """
-    逆ジャンプ台: MA5 < MA20、MA5がMA20に接近してから陰線で反落。
+    逆ジャンプ台（改善版）: MA5 が MA20 を下回り、差が縮まった後、陰線で MA5 を下に抜ける。
     """
     def _check(df: pd.DataFrame) -> bool:
         if len(df) < 10:
             return False
         latest = df.iloc[-1]
+        prev = df.iloc[-2]
         if latest["MA5"] >= latest["MA20"]:
             return False
 
@@ -255,18 +262,22 @@ def check_reverse_jump_dai(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
             return False
 
         current_gap = abs(latest["MA5"] - latest["MA20"]) / latest["MA20"]
-        if current_gap <= min_gap:
+        if current_gap <= min_gap * 1.05:
             return False
         if _slope(df, "MA5") >= 0:
             return False
-        return latest["Close"] < latest["Open"]  # 陰線
+        if latest["Close"] >= latest["Open"]:
+            return False
+        if latest["Close"] >= prev["Close"]:
+            return False
+        return latest["Close"] < latest["MA5"]
 
     return _check(daily) or _check(weekly)
 
 
 def check_reverse_kahanshin(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
     """
-    逆下半身: 前バーの終値がMA5以上 → 現バーの陰線でMA5を下抜け、実体の50%以上がMA5より下。
+    逆下半身（改善版）: 前バーが MA5 近辺にあり、今バーで陰線とともに MA5 を下に抜ける。
     """
     def _check(df: pd.DataFrame) -> bool:
         if len(df) < 10:
@@ -280,7 +291,9 @@ def check_reverse_kahanshin(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
             return False
         if cur["Close"] >= ma5:
             return False
-        if cur["Open"] <= cur["Close"]:  # 陽線は除外
+        if cur["Close"] >= prev["Close"]:
+            return False
+        if cur["Open"] <= cur["Close"]:
             return False
         body = cur["Open"] - cur["Close"]
         if body <= 0:
@@ -345,7 +358,8 @@ def check_dead_cross(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
 
 def check_golden_cross_imminent(daily: pd.DataFrame, weekly: pd.DataFrame) -> bool:
     """
-    GC直前: MA5がMA20をまさに抜こうとしている（ギャップ≤2%＋上向き）、またはGC直後。
+    GC直前・直後（改善版）: MA5 が MA20 に近い位置で上に抜け、
+    直近で陽線と上向き傾向が確認される局面を拾う。
     """
     def _check(df: pd.DataFrame) -> bool:
         if len(df) < 10:
@@ -360,14 +374,13 @@ def check_golden_cross_imminent(daily: pd.DataFrame, weekly: pd.DataFrame) -> bo
             return False
 
         gap_pct = (ma20 - ma5) / ma20
-        if 0 < gap_pct <= 0.02 and _slope(df, "MA5") > 0:
+        if 0 < gap_pct <= 0.02 and _slope(df, "MA5") > 0 and latest["Close"] > latest["MA20"]:
             return True
 
-        # 直近3本でGC
         if len(df) >= 4:
             was_below = df["MA5"].iloc[-4] < df["MA20"].iloc[-4]
             now_above = df["MA5"].iloc[-1] > df["MA20"].iloc[-1]
-            if was_below and now_above:
+            if was_below and now_above and latest["Close"] > latest["Open"]:
                 return True
         return False
 

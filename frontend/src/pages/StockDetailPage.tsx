@@ -8,6 +8,7 @@ import { getCachedHit, getCachedScreenResult } from "../hooks/useScreener";
 import type { IndexCorrelation, CorporateEvents } from "../types";
 import { CONDITION_LABELS, LONG_CONDITIONS } from "../types";
 import { fetchEvents } from "../api/client";
+import { useFavorites } from "../hooks/useFavorites";
 
 function CorrInfo({ corr }: { corr: IndexCorrelation | null }) {
   if (!corr) return null;
@@ -87,6 +88,7 @@ export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const hit =
     (location.state as { hit?: ScreenHit } | null)?.hit ??
@@ -165,6 +167,17 @@ export default function StockDetailPage() {
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-base font-bold font-mono text-blue-400">{code}</span>
+            <button
+              type="button"
+              onClick={() => code && toggleFavorite(code)}
+              className={clsx(
+                "text-lg transition-colors",
+                code && isFavorite(code) ? "text-yellow-400" : "text-gray-500 hover:text-yellow-300"
+              )}
+              title={code && isFavorite(code) ? "お気に入り解除" : "お気に入りに追加"}
+            >
+              {code && isFavorite(code) ? "★" : "☆"}
+            </button>
             {weeklyData && (
               <>
                 <span className="text-base font-semibold">{weeklyData.name}</span>

@@ -3,6 +3,7 @@ import clsx from "clsx";
 import type { ConditionStat, CorporateEvents, ScreenHit } from "../../types";
 import { CONDITION_LABELS, LONG_CONDITIONS, SHORT_CONDITIONS } from "../../types";
 import { fetchEvents } from "../../api/client";
+import { useFavorites } from "../../hooks/useFavorites";
 
 interface Props {
   hit: ScreenHit;
@@ -111,6 +112,8 @@ function WinrateCell({ hit, conditionStats }: { hit: ScreenHit; conditionStats?:
 
 export default function ResultRow({ hit, onClick, conditionStats }: Props) {
   const [events, setEvents] = useState<CorporateEvents | null>(null);
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const favorite = isFavorite(hit.code);
 
   // マウント時に自動取得
   useEffect(() => {
@@ -130,7 +133,26 @@ export default function ResultRow({ hit, onClick, conditionStats }: Props) {
       className="border-b border-gray-800 hover:bg-gray-800 cursor-pointer transition-colors"
     >
       {/* コード */}
-      <td className="px-3 py-2 text-sm font-mono text-blue-400">{hit.code}</td>
+      <td className="px-3 py-2 text-sm font-mono text-blue-400">
+        <div className="flex items-center gap-2">
+          <span>{hit.code}</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite(hit.code);
+            }}
+            className={clsx(
+              "text-sm transition-colors",
+              favorite ? "text-yellow-400" : "text-gray-500 hover:text-yellow-300"
+            )}
+            title={favorite ? "お気に入り解除" : "お気に入りに追加"}
+            aria-label={favorite ? "お気に入り解除" : "お気に入りに追加"}
+          >
+            {favorite ? "★" : "☆"}
+          </button>
+        </div>
+      </td>
 
       {/* 銘柄名 */}
       <td className="px-3 py-2 text-sm">
