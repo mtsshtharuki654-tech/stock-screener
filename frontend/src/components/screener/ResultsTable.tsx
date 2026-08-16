@@ -155,7 +155,12 @@ export default function ResultsTable({ result, isFromCache, onClear, isLoading, 
                 <ResultRow
                   key={hit.code}
                   hit={hit}
-                  onClick={() => navigate(`/stock/${hit.code}`, { state: { hit } })}
+                  onClick={() => navigate(`/stock/${hit.code}`, {
+                    state: {
+                      hit,
+                      navigationSource: favoritesOnly ? "favorites" : "screening",
+                    },
+                  })}
                   conditionStats={conditionStats ?? undefined}
                   favoritesOnly={favoritesOnly}
                   favoriteCodes={favoriteCodes}

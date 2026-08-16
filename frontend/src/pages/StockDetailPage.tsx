@@ -88,7 +88,8 @@ export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { isFavorite, toggleFavorite } = useFavorites();
+  const { favorites, isFavorite, toggleFavorite } = useFavorites();
+  const navigationSource = (location.state as { navigationSource?: string } | null)?.navigationSource;
 
   const hit =
     (location.state as { hit?: ScreenHit } | null)?.hit ??
@@ -107,13 +108,18 @@ export default function StockDetailPage() {
   if (!code) return null;
 
   // スクリーナー結果から前後ナビゲーション
-  const allHits = getCachedScreenResult()?.hits ?? [];
+  const cachedHits = getCachedScreenResult()?.hits ?? [];
+  const allHits = navigationSource === "favorites"
+    ? cachedHits.filter((h) => favorites.includes(h.code))
+    : cachedHits;
   const currentIdx = allHits.findIndex((h) => h.code === code);
   const prevHit = currentIdx > 0 ? allHits[currentIdx - 1] : null;
   const nextHit = currentIdx >= 0 && currentIdx < allHits.length - 1 ? allHits[currentIdx + 1] : null;
 
   const goTo = (target: ScreenHit) => {
-    navigate(`/stock/${target.code}`, { state: { hit: target } });
+    navigate(`/stock/${target.code}`, {
+      state: { hit: target, navigationSource },
+    });
   };
 
   const conditionStats: Record<string, ConditionStat> | null =
